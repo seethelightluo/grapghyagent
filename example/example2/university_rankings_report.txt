@@ -1,0 +1,38 @@
+========================================
+WORLD TOP 10 UNIVERSITY RANKINGS — DISCIPLINE ERROR ANALYSIS
+========================================
+
+OVERVIEW:
+This report analyzes the discrepancy between the overall rank and the average discipline rank for the top 10 universities in global rankings. Error is defined as Average Discipline Rank minus Overall Rank, with positive values indicating that the overall rank is lower (better) than the average discipline rank, and negative values indicating the opposite.
+
+RANKING TABLE:
+University                          | Overall Rank | Avg Discipline Rank | Error  | Error %
+-----------------------------------|-------------|---------------------|--------|--------
+MIT                                | 1           | 3.4                 | +2.4   | +240.0%
+Stanford University                | 2           | 3.7                 | +1.7   | +85.0%
+Harvard University                 | 3           | 4.6                 | +1.6   | +53.33%
+California Institute of Technology | 4           | 6.5                 | +2.5   | +62.5%
+University of Oxford               | 5           | 3.6                 | -1.4   | -28.0%
+University of Cambridge            | 6           | 3.0                 | -3.0   | -50.0%
+ETH Zurich                         | 7           | 6.0                 | -1.0   | -14.29%
+UCL                                | 8           | 7.8                 | -0.2   | -2.5%
+Imperial College London            | 9           | 8.8                 | -0.2   | -2.22%
+University of Chicago              | 10          | 7.5                 | -2.5   | -25.0%
+
+FLOATING-POINT ERROR ANALYSIS:
+The error values represent the difference between the average discipline rank and the overall rank for each university. A positive error means that the university's average discipline rank is higher than its overall rank, suggesting that it performs better in individual disciplines than its overall rank indicates. Conversely, a negative error means that the overall rank is higher than the average discipline rank, indicating potential overestimation in the overall ranking or strong performance in disciplines not captured in the average.
+
+STATISTICS SUMMARY:
+Mean Error: -0.01
+Standard Deviation of Error: 1.89
+Maximum Positive Error: 2.5
+Maximum Negative Error: -3.0
+Number of Universities Overestimated: 4
+Number of Universities Underestimated: 6
+
+KEY FINDINGS:
+- The mean error of -0.01 indicates no significant overall bias in the rankings.
+- The standard deviation of 1.89 shows considerable variability in errors across universities.
+- California Institute of Technology has the largest positive error (2.5), meaning its overall rank is much lower than its average discipline rank.
+- University of Cambridge has the largest negative error (-3.0), suggesting it is underestimated in the overall ranking.
+- More universities (6) are underestimated (negative error) than overestimated (positive error), with 4 universities having positive errors.
