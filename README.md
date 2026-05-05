@@ -1,11 +1,15 @@
-# Why GraphyAgent
+# Why GraphyAgent / 为什么选择 GraphyAgent
 
 > 先看一个真实图规划（example2），再看 GraphyAgent 如何把任务拆成必要子模块、在必要处递归下钻，并与现在具备 ReAct 能力的 Claude Code 对比。
 
-## How to use
+## How to use / 使用方式
 
+- 切换语言 / Switch language: [中文](#zh) | [English](#en)
 - 在线示例与快速上手页面: https://seethelightluo.github.io/grapghyagent/
 - 先打开上面的页面，再按照图式规划、递归下钻、独立 memory 和审计流程理解 GraphyAgent 的使用方式。
+
+<a id="zh"></a>
+## 中文
 
 ## example2 图规划（原始图）
 
@@ -88,3 +92,96 @@ node_4           node_5
 - 多步骤研究与报告生成
 - 需要并行子任务的复杂问题
 - 对可验证性和可追溯性要求高的任务链
+
+<a id="en"></a>
+## English
+
+> Start with a real graph plan from example2, then see how GraphyAgent decomposes a task into only the necessary submodules, drills down recursively when a node is still too hard, and compares with Claude Code that already has ReAct.
+
+## How to use
+
+- Switch language / 切换语言: [中文](#zh) | [English](#en)
+- Online demo and quick-start page: https://seethelightluo.github.io/grapghyagent/
+- Open the page above first, then follow the graph plan, recursive drilling, isolated memory, and audit flow to understand how GraphyAgent is used.
+
+## example2 graph (original)
+
+```
+node_1 (Define Univ & Disciplines)
+   │
+   ▼
+node_2 (Collect Rankings Data)
+   │
+   ▼
+node_3 (Validate Data)
+   │
+   ├──────────────┐
+   ▼              ▼
+node_4           node_5
+(Calc FP Error)  (Gen Statistics)
+   │              │
+   └──────┬───────┘
+          ▼
+       node_6
+    (Gen TXT Output)
+```
+
+## example2 node breakdown (tasks and gates)
+
+- node_1: Define 10 universities + 10 disciplines (scope definition)
+- node_2: Collect ranking data (core data collection)
+- node_3: Validate data (structural integrity + deduplication + count check)
+- node_4: Error analysis (overall rank vs discipline average)
+- node_5: Statistics summary (mean / variance / extremes / counts)
+- node_6: Generate the final TXT output
+
+## Core capabilities
+
+### 1) Graph planning with necessity filtering
+- Do not stuff every step into one prompt; first design only the submodules that are truly necessary.
+- For long, parallel, and complex tasks, define the structure first, then execute.
+- Each node has clear input, output, and gates for review, rollback, and rerun.
+
+### 2) Recursive drilling into sub-submodules to solve hard single-node problems
+- If a node is too large, too hard, or cannot be completed reliably in one pass, GraphyAgent keeps decomposing it into a finer subgraph.
+- A node failure does not fail the whole chain; progress continues at a finer granularity.
+- Recursive decomposition is part of the workflow, not an emergency patch.
+
+### 3) Clean and sufficiently large per-node memory
+- Each submodule has its own memory and only loads the context it actually needs.
+- This keeps irrelevant history, old conclusions, and noise from accumulating across long tasks.
+- Each node gets a cleaner and more spacious context window, which keeps reasoning stable.
+
+### 4) Stricter output audit for submodules
+- Node outputs do not stop at “looks done”; they must pass contract, gate, and evidence-pointer checks.
+- Structured output, verification rules, and audit logs make results more reviewable and easier to debug.
+
+### 5) Reusable workflows and task-handling flow
+- GraphyAgent is not just a one-off prompt splitter; it turns node roles, dependencies, gates, and audit steps into reusable workflows.
+- The same flow can be moved to different tasks by swapping node content instead of rewriting the whole process.
+
+## Comparison with Claude Code with ReAct
+
+| Dimension | GraphyAgent | Claude Code (with ReAct) |
+| --- | --- | --- |
+| Task organization | Explicit DAG, plan necessary submodules first, then execute | Progresses through a reasoning-action loop inside the conversation |
+| Long-task fit | Split first, then run node by node, which works well for long chains | Can keep going, but complex tasks depend more on prompt steering and context management |
+| Parallelism | Naturally supports independent node-level parallel execution | Can do tool calls and loops, but parallel structure is usually not a first-class pattern |
+| Recursive depth | Can keep drilling down into sub-submodules to solve hard single-node problems | Can ask more questions or re-plan, but structured recursion is weaker |
+| Context noise | Each submodule has isolated memory and only gets necessary context | Shared conversation context makes noise easier to accumulate |
+| Output audit | Gates, verification rules, evidence pointers, and node-level audits | More focused on immediate response; audit trails are usually not modeled explicitly |
+| Workflow reuse | Node templates, workflows, gates, and audits are reusable | More dependent on prompt reuse; workflow governance is less explicit |
+
+## Why it is better for complex and parallel tasks
+
+- **Plan before execution**: isolate the necessary nodes first, so the whole task does not rely on one giant reasoning step.
+- **Parallelism and recursion together**: run what can run in parallel, and keep drilling down when a node is still too large.
+- **Cleaner context**: each submodule only gets the information it needs, so noise does not pollute long tasks.
+- **Stricter audit**: outputs are checked against contracts, gates, and evidence, not just judged by appearance.
+- **Reusable flow**: the graph, nodes, audits, and memory model can be carried over to new tasks.
+
+## Use cases
+
+- Multi-step research and report generation
+- Complex tasks that need parallel subtasks
+- Task chains that require verifiability and traceability

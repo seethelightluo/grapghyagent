@@ -87,6 +87,38 @@
         box-shadow: var(--shadow);
       }
 
+      .lang-toggle {
+        display: inline-flex;
+        gap: 8px;
+        margin: 0 0 20px;
+        padding: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+      }
+
+      .lang-toggle button {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        padding: 8px 14px;
+        border-radius: 999px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+
+      .lang-toggle button:hover {
+        color: var(--ink);
+      }
+
+      .lang-toggle button.active {
+        background: var(--ink);
+        color: #fff;
+      }
+
       .hero-card {
         background: var(--card);
         border-radius: 28px;
@@ -255,36 +287,40 @@
     <main class="page">
       <section class="hero">
         <div>
-          <h1 class="title">为什么 <span>GraphyAgent</span> 更适合复杂与并行问题？</h1>
-          <p class="subtitle">
+          <div class="lang-toggle" aria-label="Language switch">
+            <button type="button" data-lang="zh">中文</button>
+            <button type="button" data-lang="en">English</button>
+          </div>
+          <h1 class="title" id="hero-title">为什么 <span>GraphyAgent</span> 更适合复杂与并行问题？</h1>
+          <p class="subtitle" id="hero-subtitle">
             用图式思维组织任务、用独立记忆隔离噪声、用可验证的节点输出加速迭代。
             下面是 3 步快速上手教程（含润色后的提示词）。
           </p>
-          <a class="cta" href="https://github.com/seethelightluo/grapghyagent" target="_blank" rel="noreferrer">
+          <a class="cta" id="repo-link" href="https://github.com/seethelightluo/grapghyagent" target="_blank" rel="noreferrer">
             访问仓库：github.com/seethelightluo/grapghyagent
           </a>
         </div>
         <div class="hero-card">
-          <h3>你将获得</h3>
+          <h3 id="benefit-title">你将获得</h3>
           <ul>
-            <li>精准的提示词模板，避免上下文噪声。</li>
-            <li>并行与复杂任务的清晰拆解方法。</li>
-            <li>可复用的图式流程与模块化记忆。</li>
+            <li id="benefit-1">精准的提示词模板，避免上下文噪声。</li>
+            <li id="benefit-2">并行与复杂任务的清晰拆解方法。</li>
+            <li id="benefit-3">可复用的图式流程与模块化记忆。</li>
           </ul>
         </div>
       </section>
 
       <section>
-        <h2 class="section-title">3 步上手 GraphyAgent</h2>
-        <p class="section-desc">每一步都已经润色成更准确、可执行的提示词。直接复制给 code agent 即可。</p>
+        <h2 class="section-title" id="steps-title">3 步上手 GraphyAgent</h2>
+        <p class="section-desc" id="steps-desc">每一步都已经润色成更准确、可执行的提示词。直接复制给 code agent 即可。</p>
 
         <div class="steps">
           <article class="step">
             <div class="step-tag">
-              <span>STEP 1</span>
-              <span class="step-sub">拉取与环境</span>
+              <span id="step-1-main">STEP 1</span>
+              <span class="step-sub" id="step-1-sub">拉取与环境</span>
             </div>
-            <h4>克隆仓库并完成环境配置</h4>
+            <h4 id="step-1-heading">克隆仓库并完成环境配置</h4>
             <div class="prompt-box" id="prompt-1">
 请从 https://github.com/seethelightluo/grapghyagent 克隆仓库，并进入项目根目录。
 检查本机 Python 版本（建议 >= 3.10），然后在 program 目录创建虚拟环境并安装依赖。
@@ -296,10 +332,10 @@
 
           <article class="step">
             <div class="step-tag">
-              <span>STEP 2</span>
-              <span class="step-sub">填写密钥</span>
+              <span id="step-2-main">STEP 2</span>
+              <span class="step-sub" id="step-2-sub">填写密钥</span>
             </div>
-            <h4>配置 program/.env</h4>
+            <h4 id="step-2-heading">配置 program/.env</h4>
             <div class="prompt-box" id="prompt-2">
 现在我们来配置本地环境。请打开 program/.env，将我提供的 API Key 填入对应字段（例如 ANTHROPIC_API_KEY、OPENAI_API_KEY）。
 如果我还提供了代理或 Base URL（例如 ANTHROPIC_BASE_URL），也请一起填写。
@@ -310,10 +346,10 @@
 
           <article class="step">
             <div class="step-tag">
-              <span>STEP 3</span>
-              <span class="step-sub">用图能力解题</span>
+              <span id="step-3-main">STEP 3</span>
+              <span class="step-sub" id="step-3-sub">用图能力解题</span>
             </div>
-            <h4>结合 evidence_chain 解决问题</h4>
+            <h4 id="step-3-heading">结合 evidence_chain 解决问题</h4>
             <div class="prompt-box" id="prompt-3">
 请先阅读 program/.cheetahclaws/skills/evidence_chain/SKILL.md，提炼它的输入、输出与使用约束。
 然后使用 program 内置的 agent 或 CLI（遵循 program/README.md 的运行方式）来回答我的问题：
@@ -329,31 +365,185 @@
       </section>
 
       <section class="note">
-        <h5>提示</h5>
-        <p>GraphyAgent 的核心优势是“图式并行 + 独立记忆”。每个子模块只加载必要上下文，从根源减少噪声。</p>
+        <h5 id="note-title">提示</h5>
+        <p id="note-text">GraphyAgent 的核心优势是“图式并行 + 独立记忆”。每个子模块只加载必要上下文，从根源减少噪声。</p>
       </section>
     </main>
 
     <script>
-      const buttons = document.querySelectorAll("[data-copy]");
-      buttons.forEach((button) => {
-        button.addEventListener("click", async () => {
-          const targetId = button.getAttribute("data-copy");
+      const translations = {
+        zh: {
+          titleHTML: '为什么 <span>GraphyAgent</span> 更适合复杂与并行问题？',
+          subtitle:
+            '用图式思维组织任务、用独立记忆隔离噪声、用可验证的节点输出加速迭代。 下面是 3 步快速上手教程（含润色后的提示词）。',
+          repoText: '访问仓库：github.com/seethelightluo/grapghyagent',
+          benefitTitle: '你将获得',
+          benefits: [
+            '精准的提示词模板，避免上下文噪声。',
+            '并行与复杂任务的清晰拆解方法。',
+            '可复用的图式流程与模块化记忆。',
+          ],
+          stepsTitle: '3 步上手 GraphyAgent',
+          stepsDesc: '每一步都已经润色成更准确、可执行的提示词。直接复制给 code agent 即可。',
+          step1: {
+            main: 'STEP 1',
+            sub: '拉取与环境',
+            heading: '克隆仓库并完成环境配置',
+            prompt:
+              '请从 https://github.com/seethelightluo/grapghyagent 克隆仓库，并进入项目根目录。\n检查本机 Python 版本（建议 >= 3.10），然后在 program 目录创建虚拟环境并安装依赖。\n依赖安装请优先遵循 program/README.md 的说明（如 requirements.txt 或 pyproject.toml）。\n完成后请列出可用的启动/运行命令与入口脚本，并说明每个命令的用途。',
+          },
+          step2: {
+            main: 'STEP 2',
+            sub: '填写密钥',
+            heading: '配置 program/.env',
+            prompt:
+              '现在我们来配置本地环境。请打开 program/.env，将我提供的 API Key 填入对应字段（例如 ANTHROPIC_API_KEY、OPENAI_API_KEY）。\n如果我还提供了代理或 Base URL（例如 ANTHROPIC_BASE_URL），也请一起填写。\n请注意：.env 只用于本地运行，不要提交到仓库。完成后仅回复“已配置完成”。',
+          },
+          step3: {
+            main: 'STEP 3',
+            sub: '用图能力解题',
+            heading: '结合 evidence_chain 解决问题',
+            prompt:
+              '请先阅读 program/.cheetahclaws/skills/evidence_chain/SKILL.md，提炼它的输入、输出与使用约束。\n然后使用 program 内置的 agent 或 CLI（遵循 program/README.md 的运行方式）来回答我的问题：\n【我的问题】：{在这里替换为你的具体问题}\n输出要求：\n1) 给出图式拆分（节点、依赖、并行关系）\n2) 每个节点的输入/输出与 Gate\n3) 最终答案 + 关键证据/数据来源摘要',
+          },
+          noteTitle: '提示',
+          noteText:
+            'GraphyAgent 的核心优势是“图式并行 + 独立记忆”。每个子模块只加载必要上下文，从根源减少噪声。',
+          copyLabel: '复制提示词',
+          copiedLabel: '已复制',
+          failedLabel: '复制失败',
+          pageTitle: 'GraphyAgent 快速上手',
+        },
+        en: {
+          titleHTML: 'Why is <span>GraphyAgent</span> better for complex and parallel tasks?',
+          subtitle:
+            'It organizes work as a graph, isolates noise with per-node memory, and speeds up iteration with verifiable node outputs. Use the switch above to view English or Chinese anytime.',
+          repoText: 'Open the repository: github.com/seethelightluo/grapghyagent',
+          benefitTitle: "What you'll get",
+          benefits: [
+            'Precise prompt templates that avoid context noise.',
+            'A clear decomposition method for long, parallel, and complex tasks.',
+            'Reusable graph workflows and modular memory.',
+          ],
+          stepsTitle: '3 steps to get started with GraphyAgent',
+          stepsDesc: 'Each step has been polished into a more exact, executable prompt. Copy it directly to your code agent.',
+          step1: {
+            main: 'STEP 1',
+            sub: 'Clone & setup',
+            heading: 'Clone the repo and set up the environment',
+            prompt:
+              'Clone the repository from https://github.com/seethelightluo/grapghyagent into the project root.\nCheck the local Python version (recommended >= 3.10), create a virtual environment in the program directory, and install dependencies.\nPrefer the instructions in program/README.md (for example requirements.txt or pyproject.toml).\nAfter that, list the available start/run commands and entry scripts, and explain what each command does.',
+          },
+          step2: {
+            main: 'STEP 2',
+            sub: 'Fill in keys',
+            heading: 'Configure program/.env',
+            prompt:
+              'Open program/.env and fill the API keys into the matching fields (for example ANTHROPIC_API_KEY and OPENAI_API_KEY).\nIf I provide a proxy or base URL (for example ANTHROPIC_BASE_URL), fill that in too.\nKeep .env local only and do not commit it. When you are done, reply with only “Configured.”',
+          },
+          step3: {
+            main: 'STEP 3',
+            sub: 'Graph-based solve',
+            heading: 'Use evidence_chain to solve the task',
+            prompt:
+              'First read program/.cheetahclaws/skills/evidence_chain/SKILL.md and extract its inputs, outputs, and operating constraints.\nThen use the agent or CLI in program (follow program/README.md for the run command) to answer my question:\n[My question]: {replace with your specific question}\nOutput requirements:\n1) Graph decomposition (nodes, dependencies, parallel branches)\n2) Input/output and gate for each node\n3) Final answer plus a short evidence/data summary',
+          },
+          noteTitle: 'Note',
+          noteText:
+            'GraphyAgent’s core advantage is graph-level parallelism plus per-node isolation. Each submodule only loads the context it needs, so noise stays out and reasoning stays stable.',
+          copyLabel: 'Copy prompt',
+          copiedLabel: 'Copied',
+          failedLabel: 'Copy failed',
+          pageTitle: 'GraphyAgent Quick Start',
+        },
+      };
+
+      let currentLanguage = 'zh';
+
+      const languageButtons = document.querySelectorAll('[data-lang]');
+      const copyButtons = document.querySelectorAll('[data-copy]');
+      const promptMap = {
+        'prompt-1': document.getElementById('prompt-1'),
+        'prompt-2': document.getElementById('prompt-2'),
+        'prompt-3': document.getElementById('prompt-3'),
+      };
+
+      function applyLanguage(language) {
+        currentLanguage = language;
+        const translation = translations[language];
+
+        document.documentElement.lang = language === 'zh' ? 'zh-Hans' : 'en';
+        document.title = translation.pageTitle;
+
+        document.getElementById('hero-title').innerHTML = translation.titleHTML;
+        document.getElementById('hero-subtitle').textContent = translation.subtitle;
+        document.getElementById('repo-link').textContent = translation.repoText;
+        document.getElementById('benefit-title').textContent = translation.benefitTitle;
+        document.getElementById('benefit-1').textContent = translation.benefits[0];
+        document.getElementById('benefit-2').textContent = translation.benefits[1];
+        document.getElementById('benefit-3').textContent = translation.benefits[2];
+        document.getElementById('steps-title').textContent = translation.stepsTitle;
+        document.getElementById('steps-desc').textContent = translation.stepsDesc;
+
+        document.getElementById('step-1-main').textContent = translation.step1.main;
+        document.getElementById('step-1-sub').textContent = translation.step1.sub;
+        document.getElementById('step-1-heading').textContent = translation.step1.heading;
+        document.getElementById('prompt-1').textContent = translation.step1.prompt;
+
+        document.getElementById('step-2-main').textContent = translation.step2.main;
+        document.getElementById('step-2-sub').textContent = translation.step2.sub;
+        document.getElementById('step-2-heading').textContent = translation.step2.heading;
+        document.getElementById('prompt-2').textContent = translation.step2.prompt;
+
+        document.getElementById('step-3-main').textContent = translation.step3.main;
+        document.getElementById('step-3-sub').textContent = translation.step3.sub;
+        document.getElementById('step-3-heading').textContent = translation.step3.heading;
+        document.getElementById('prompt-3').textContent = translation.step3.prompt;
+
+        document.getElementById('note-title').textContent = translation.noteTitle;
+        document.getElementById('note-text').textContent = translation.noteText;
+
+        languageButtons.forEach((button) => {
+          button.classList.toggle('active', button.dataset.lang === language);
+        });
+
+        copyButtons.forEach((button) => {
+          button.textContent = translation.copyLabel;
+        });
+      }
+
+      languageButtons.forEach((button) => {
+        button.addEventListener('click', () => applyLanguage(button.dataset.lang));
+      });
+
+      copyButtons.forEach((button) => {
+        button.addEventListener('click', async () => {
+          const targetId = button.getAttribute('data-copy');
           const text = document.getElementById(targetId)?.innerText?.trim();
           if (!text) return;
+
+          const translation = translations[currentLanguage];
+
           try {
             await navigator.clipboard.writeText(text);
-            button.dataset.status = "done";
-            button.textContent = "已复制";
-            setTimeout(() => {
-              button.dataset.status = "";
-              button.textContent = "复制提示词";
-            }, 1400);
+            button.dataset.status = 'done';
+            button.textContent = translation.copiedLabel;
           } catch (err) {
-            button.textContent = "复制失败";
+            button.textContent = translation.failedLabel;
           }
+
+          if (button._copyTimer) {
+            clearTimeout(button._copyTimer);
+          }
+
+          button._copyTimer = setTimeout(() => {
+            button.dataset.status = '';
+            button.textContent = translations[currentLanguage].copyLabel;
+          }, 1400);
         });
       });
+
+      applyLanguage('zh');
     </script>
   </body>
 </html>
