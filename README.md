@@ -2,15 +2,13 @@
 
 > A graph-first coding agent for complex tasks: plan first, review first, execute by node, verify every output against spec, audit every node, and save clean node-level memory instead of letting one long conversation carry everything.
 
-English | [中文](#中文)
+[English](#english) | [中文](#中文)
 
 - Demo: https://seethelightluo.github.io/grapghyagent/
 
 ---
 
 ## 中文
-
-[English](#graphyagent) | 中文
 
 ## 为什么还需要 graphyagent？
 
@@ -223,7 +221,7 @@ GraphyAgent 不是“另一个会写代码的 agent”。
 
 ## English
 
-English | [中文](#中文)
+[English](#english) | [中文](#中文)
 
 ## Why another coding agent?
 
