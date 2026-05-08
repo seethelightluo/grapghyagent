@@ -76,6 +76,7 @@ def create_task(
     gate_condition: str = "",
     necessity_audit: str = "",
     evidence_pointers: list[str] | None = None,
+    blocked_by: list[str] | None = None,
 ) -> Task:
     with _lock:
         _load()
@@ -101,6 +102,14 @@ def create_task(
             evidence_pointers=evidence_pointers or [],
         )
         _tasks[task.id] = task
+        # Wire blocked_by edges after creation
+        if blocked_by:
+            for blocker_id in blocked_by:
+                blocker = _tasks.get(str(blocker_id))
+                if blocker:
+                    task.blocked_by.append(str(blocker_id))
+                    if str(task.id) not in blocker.blocks:
+                        blocker.blocks.append(str(task.id))
         _save()
         return task
 
@@ -147,6 +156,7 @@ def update_task(
     evidence_pointers: list[str] | None = None,
     memory_path: str | None = None,
     add_run_log: dict[str, Any] | None = None,
+    sub_graph: dict[str, Any] | None = None,
 ) -> tuple[Task | None, list[str]]:
     """Update a task. Returns (updated_task, list_of_updated_fields)."""
     with _lock:
@@ -271,6 +281,10 @@ def update_task(
         if add_run_log is not None:
             task.run_log.append(add_run_log)
             updated_fields.append("run_log")
+
+        if sub_graph is not None and sub_graph != task.sub_graph:
+            task.sub_graph = sub_graph
+            updated_fields.append("sub_graph")
 
         if add_blocks:
             new_blocks = [b for b in add_blocks if b not in task.blocks]

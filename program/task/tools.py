@@ -699,7 +699,7 @@ def _task_retry(
     from cc_config import load_config
 
     config = load_config()
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("ANTHROPIC_MODEL") or config.get("model") or "claude-sonnet-4-6"
     if "/" not in model:
         model = f"anthropic/{model}"
     config["model"] = model
@@ -743,7 +743,7 @@ def _task_decompose(
     from cc_config import load_config
 
     config = load_config()
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("ANTHROPIC_MODEL") or config.get("model") or "claude-sonnet-4-6"
     if "/" not in model:
         model = f"anthropic/{model}"
     config["model"] = model
@@ -792,7 +792,7 @@ def _task_execute_recovery(
     from cc_config import load_config
 
     config = load_config()
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("ANTHROPIC_MODEL") or config.get("model") or "claude-sonnet-4-6"
     if "/" not in model:
         model = f"anthropic/{model}"
     config["model"] = model
@@ -802,10 +802,14 @@ def _task_execute_recovery(
 
     log_callback = _make_log_callback(log_dir) if log_dir else None
 
+    # Derive output_dir from log_dir (e.g. ".../example2/log" → ".../example2")
+    output_dir = str(Path(log_dir).parent) if log_dir else ""
+
     try:
         result = execute_with_recovery(
             task_id, actual_inputs, system_prompt, config, depth, max_depth,
             log_callback=log_callback,
+            output_dir=output_dir,
         )
     except Exception as e:
         import traceback
@@ -875,6 +879,22 @@ def _task_write_memory(task_id: str, output_dir: str, node_id: str) -> str:
     actual_input_json = json.dumps(task.actual_input, indent=2, ensure_ascii=False) if task.actual_input else "{}"
     actual_output_json = json.dumps(task.actual_output, indent=2, ensure_ascii=False) if task.actual_output else "{}"
 
+    # Build sub-graph section (if this node was decomposed)
+    sub_graph_section = ""
+    if task.sub_graph:
+        sg = task.sub_graph
+        sg_nodes = sg.get("sub_tasks", [])
+        sg_edges = sg.get("edges", [])
+        sg_json = json.dumps(sg, indent=2, ensure_ascii=False)
+        sub_graph_section = f"""
+## Sub-Graph (decomposed from this node)
+- **Sub-nodes**: {len(sg_nodes)}
+- **Sub-edges**: {len(sg_edges)}
+```json
+{sg_json}
+```
+"""
+
     content = f"""# Module Memory: {node_id} — {task.subject}
 
 ## Necessity
@@ -913,6 +933,7 @@ def _task_write_memory(task_id: str, output_dir: str, node_id: str) -> str:
 ## Gate Status
 - **Condition**: {task.gate_condition or "No gate condition defined."}
 - **Status**: **{task.gate_status or "pending"}** {'✅' if task.gate_status == 'open' else '⚠️'}
+{sub_graph_section}
 """
 
     memory_path.write_text(content, encoding="utf-8")

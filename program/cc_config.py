@@ -3,6 +3,26 @@ import os
 import json
 from pathlib import Path
 
+
+def _load_dotenv() -> None:
+    """Load .env file from the program directory into os.environ."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
+# Load .env on module import (runs once at startup)
+_load_dotenv()
+
 CONFIG_DIR        = Path.home() / ".cheetahclaws"
 CONFIG_FILE       = CONFIG_DIR  / "config.json"
 HISTORY_FILE      = CONFIG_DIR  / "input_history.txt"
@@ -80,10 +100,23 @@ def load_config() -> dict:
             cfg.update(json.loads(CONFIG_FILE.read_text()))
         except Exception:
             pass
+    # ── .env overrides: env vars always take priority over config.json ──────
+    env_model = os.environ.get("ANTHROPIC_MODEL", "")
+    if env_model:
+        if "/" not in env_model:
+            env_model = f"anthropic/{env_model}"
+        cfg["model"] = env_model
+    env_base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+    if env_base_url:
+        cfg["anthropic_base_url"] = env_base_url
     # Backward-compat: legacy single api_key → anthropic_api_key
     if cfg.get("api_key") and not cfg.get("anthropic_api_key"):
         cfg["anthropic_api_key"] = cfg.pop("api_key")
-    # Also accept ANTHROPIC_API_KEY env for backward-compat
+    # ANTHROPIC_AUTH_TOKEN from env takes priority over config.json's anthropic_api_key
+    auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+    if auth_token:
+        cfg["anthropic_api_key"] = auth_token
+    # Also accept ANTHROPIC_API_KEY env (lower priority than AUTH_TOKEN)
     if not cfg.get("anthropic_api_key"):
         cfg["anthropic_api_key"] = os.environ.get("ANTHROPIC_API_KEY", "")
     return cfg

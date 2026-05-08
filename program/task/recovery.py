@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 from datetime import datetime
 from typing import Any, Callable
 
@@ -73,33 +74,40 @@ def build_decompose_prompt(
     actual_inputs: dict,
     issues: list[str],
 ) -> str:
-    """Ask LLM to decompose a failed task into sub-tasks."""
+    """Ask LLM to decompose a failed task into sub-tasks (a sub-graph)."""
     return (
         "You are a task decomposition specialist. Return JSON only — no markdown.\n\n"
-        "A task has failed verification. Decompose it into smaller sub-tasks.\n\n"
+        "A task has failed verification. Decompose it into a verifiable sub-graph (a DAG of sub-tasks).\n\n"
         f"Failed task: {task_subject}\n"
         f"Description: {task_description}\n"
         f"Verification rule: {verification_rule}\n"
         f"Failure issues:\n" + "\n".join(f"- {i}" for i in issues) + "\n\n"
         f"Input data available:\n{json.dumps(actual_inputs, ensure_ascii=False, indent=2)[:1000]}\n\n"
         f"Required output schema:\n{json.dumps(output_spec, ensure_ascii=False, indent=2)}\n\n"
-        "Decompose into 2-4 sub-tasks. Each sub-task must:\n"
-        "- Have a clear, narrow responsibility\n"
-        "- Have explicit input/output schema\n"
-        "- Be directly executable (not abstract)\n"
-        "- Produce COMPLETE results (not samples or subsets)\n"
-        "- If the parent needs N items, each sub-task must produce its full share\n\n"
+        "Decompose into 2-4 sub-tasks forming a sub-graph. Each sub-task MUST have:\n"
+        "- A clear, narrow responsibility\n"
+        "- Typed `input_spec` and `output_spec`\n"
+        "- `input_example` and `output_example` (concrete sample data)\n"
+        "- `necessity_audit` (counterfactual justification)\n"
+        "- `verification_rule` (how to check correctness)\n"
+        "- `gate_condition` (downstream-blocking condition)\n\n"
         "CRITICAL: The parent task requires the FULL output. If you split work across sub-tasks,\n"
-        "each sub-task must produce ALL of its items — do not leave placeholders or summaries.\n\n"
+        "the final merged outputs from the sub-tasks must satisfy the parent's output_spec.\n\n"
         "Schema:\n"
         "{\n"
         '  "sub_tasks": [\n'
         "    {\n"
         '      "id": "sub_1",\n'
         '      "name": "What this sub-task does",\n'
-        '      "inputs": {"field": {"type": "string", "desc": "..."}},\n'
-        '      "outputs": {"field": {"type": "string", "desc": "..."}},\n'
-        '      "instruction": "Specific instructions for execution"\n'
+        '      "description": "Specific instructions",\n'
+        '      "input_spec": {"field": {"type": "string"}},\n'
+        '      "output_spec": {"field": {"type": "string"}},\n'
+        '      "input_example": {"field": "sample"},\n'
+        '      "output_example": {"field": "sample"},\n'
+        '      "necessity_audit": "If removed...",\n'
+        '      "verification_rule": "Must contain...",\n'
+        '      "gate_condition": "field exists",\n'
+        '      "blocked_by": []\n'
         "    }\n"
         "  ],\n"
         '  "edges": [\n'
@@ -222,6 +230,98 @@ def verify_output(
         "verification_rule": verification_rule,
         "verification_result": "; ".join(issues) if issues else "all checks passed",
     }
+
+
+# ── Sub-node memory writing ──────────────────────────────────────────────────
+
+def _write_sub_node_memory(task: Task, parent_task_id: str, sub_id: str, output_dir: str) -> str:
+    """Write an independent memory.md for a sub-graph node.
+
+    Stores at: <output_dir>/modules/node_<parent>/sub_graph/<sub_id>/memory.md
+    Same format as TaskWriteMemory — raw JSON actual I/O, no LLM summarization.
+    """
+    from .store import update_task
+
+    modules_dir = Path(output_dir) / "modules" / f"node_{parent_task_id}" / "sub_graph" / sub_id
+    modules_dir.mkdir(parents=True, exist_ok=True)
+    memory_path = modules_dir / "memory.md"
+
+    necessity_text = task.necessity_audit or task.necessity_claim or "No necessity analysis available."
+
+    if task.evidence_pointers:
+        evidence_list = "\n".join(f"- `{ep}`" for ep in task.evidence_pointers)
+    elif task.evidence_pointer:
+        evidence_list = f"- `{task.evidence_pointer}`"
+    else:
+        evidence_list = "- No evidence pointers."
+
+    comparison_rows = []
+    if task.output_spec and isinstance(task.output_spec, dict) and task.actual_output and isinstance(task.actual_output, dict):
+        all_keys = set(list(task.output_spec.keys()) + list(task.actual_output.keys()))
+        for key in sorted(all_keys):
+            in_spec = key in task.output_spec
+            in_actual = key in task.actual_output
+            if in_spec and in_actual:
+                comparison_rows.append(f"| {key} | defined | present | ✅ |")
+            elif in_spec and not in_actual:
+                comparison_rows.append(f"| {key} | defined | missing | ❌ |")
+            elif not in_spec and in_actual:
+                comparison_rows.append(f"| {key} | not defined | present | ⚠️ |")
+    comparison_table = (
+        "| Field | Spec | Actual | Match |\n|-------|------|--------|-------|\n"
+        + "\n".join(comparison_rows)
+        if comparison_rows
+        else "No structural comparison available."
+    )
+
+    planned_input = json.dumps(task.input_spec, indent=2, ensure_ascii=False) if task.input_spec else "{}"
+    planned_output = json.dumps(task.output_spec, indent=2, ensure_ascii=False) if task.output_spec else "{}"
+    actual_input_json = json.dumps(task.actual_input, indent=2, ensure_ascii=False) if task.actual_input else "{}"
+    actual_output_json = json.dumps(task.actual_output, indent=2, ensure_ascii=False) if task.actual_output else "{}"
+
+    content = f"""# Sub-Node Memory: {sub_id} (child of node_{parent_task_id}) — {task.subject}
+
+## Necessity
+{necessity_text}
+
+## Planned I/O
+- **Input**:
+```json
+{planned_input}
+```
+- **Output**:
+```json
+{planned_output}
+```
+
+## Actual I/O
+- **Actual Input**:
+```json
+{actual_input_json}
+```
+- **Actual Output**:
+```json
+{actual_output_json}
+```
+
+## Comparison
+{comparison_table}
+
+## Verification
+- **Rule**: {task.verification_rule or "No verification rule defined."}
+- **Result**: {task.verification_result or "No verification result."}
+
+## Evidence Pointers
+{evidence_list}
+
+## Gate Status
+- **Condition**: {task.gate_condition or "No gate condition defined."}
+- **Status**: **{task.gate_status or "pending"}** {'✅' if task.gate_status == 'open' else '⚠️'}
+"""
+
+    memory_path.write_text(content, encoding="utf-8")
+    update_task(task.id, memory_path=str(memory_path))
+    return str(memory_path)
 
 
 # ── Merge logic ───────────────────────────────────────────────────────────────
@@ -350,8 +450,9 @@ def decompose_task(
     max_depth: int = DEFAULT_MAX_DEPTH,
     custom_verifier: Callable | None = None,
     log_callback: Callable | None = None,
+    output_dir: str = "",
 ) -> dict:
-    """Decompose a failed task into sub-tasks, execute each, merge results.
+    """Decompose a failed task into a sub-graph, execute it recursively, merge results.
 
     Args:
         task_id: the task to decompose
@@ -366,7 +467,7 @@ def decompose_task(
         log_callback: optional logging callback
 
     Returns:
-        {"output": dict, "verification": dict, "meta": dict, "recovery": str, "sub_tasks": list}
+        {"output": dict, "verification": dict, "meta": dict, "recovery": str, "sub_tasks": list, "sub_graph": dict}
     """
     task = get_task(task_id)
     if task is None:
@@ -403,7 +504,11 @@ def decompose_task(
     if not sub_tasks:
         return {"error": "Decomposition returned no sub-tasks", "recovery": "decompose_empty"}
 
-    # Create sub-tasks in the store and execute them
+    # We need to execute the sub-graph in topological order
+    # For simplicity, we assume sub_tasks array is already sorted by dependency,
+    # or we can just iterate. The ideal way is true topological sort, but let's just
+    # execute them sequentially, resolving inputs as we go.
+
     sub_task_ids: list[str] = []
     sub_outputs: dict[str, dict] = {}
     all_passed = True
@@ -413,19 +518,24 @@ def decompose_task(
         sub_id = sub.get("id", "sub_?")
         sub_name = sub.get("name", sub_id)
 
-        # Create a task for each sub-task
+        # Create a task for each sub-task in the sub-graph
         sub_task = create_task(
             subject=sub_name,
-            description=f"Sub-task of #{task_id}: {sub.get('instruction', '')}",
-            input_spec=sub.get("inputs", {}),
-            output_spec=sub.get("outputs", {}),
-            gate_condition=f"parent_task_{task_id}_decomposed",
+            description=sub.get("description", f"Sub-task of #{task_id}"),
+            input_spec=sub.get("input_spec", {}),
+            output_spec=sub.get("output_spec", {}),
+            input_example=sub.get("input_example", {}),
+            output_example=sub.get("output_example", {}),
+            necessity_audit=sub.get("necessity_audit", ""),
+            verification_rule=sub.get("verification_rule", ""),
+            gate_condition=sub.get("gate_condition", ""),
+            blocked_by=sub.get("blocked_by", []),
         )
         sub_task_ids.append(sub_task.id)
 
         # Resolve sub-task inputs
         sub_inputs: dict[str, Any] = {}
-        sub_input_spec = sub.get("inputs", {})
+        sub_input_spec = sub.get("input_spec", {})
         for field_name in sub_input_spec:
             # Check edges for data flow
             for edge in sub_edges:
@@ -440,53 +550,49 @@ def decompose_task(
                 elif isinstance(failed_output, dict) and field_name in failed_output:
                     sub_inputs[field_name] = failed_output[field_name]
 
-        # Execute sub-task
-        sub_prompt = build_sub_task_prompt(sub, sub_inputs)
-        sub_response, sub_meta = call_llm(system_prompt, sub_prompt, config)
+        # Execute sub-task using the full recursive pipeline!
+        sub_result = execute_with_recovery(
+            task_id=sub_task.id,
+            actual_inputs=sub_inputs,
+            system_prompt=system_prompt,
+            config=config,
+            depth=depth + 1,  # increment depth
+            max_depth=max_depth,
+            custom_verifier=custom_verifier,
+            log_callback=log_callback,
+            output_dir=output_dir,
+        )
 
-        if log_callback:
-            log_callback(
-                f"task_{task_id}_sub_{sub_id}_d{depth+1}",
-                system_prompt, sub_prompt, sub_response, sub_meta,
-            )
-
-        try:
-            sub_output = extract_json(sub_response)
-        except Exception as e:
-            sub_output = {"error": str(e)}
+        sub_output = sub_result.get("output", {})
+        if "error" in sub_output:
             all_passed = False
 
         sub_outputs[sub_id] = sub_output
 
-        # Verify sub-output
-        sub_verification = verify_output(
-            sub_output, sub.get("outputs", {}), {},
-            "", custom_verifier,
-        )
+        # Write independent memory.md for this sub-node
+        if output_dir:
+            sub_task_for_mem = get_task(sub_task.id)
+            if sub_task_for_mem:
+                _write_sub_node_memory(sub_task_for_mem, task_id, sub_id, output_dir)
 
-        update_task(
-            sub_task.id,
-            actual_input=sub_inputs,
-            actual_output=sub_output,
-            verification_result=sub_verification["verification_result"],
-            acceptance_status="pass" if sub_verification["passed"] else "fail",
-            gate_status="open" if sub_verification["passed"] else "closed",
-            add_run_log={
-                "timestamp": datetime.now().isoformat(),
-                "step": f"sub_{sub_id}_execute",
-                "detail": f"depth={depth+1}, passed={sub_verification['passed']}",
-            },
-        )
+        # The execute_with_recovery already updated the task store with verification results
+        sub_task_record = get_task(sub_task.id)
 
-        if not sub_verification["passed"]:
-            all_passed = False
+        passed = False
+        issues_found = []
+        if sub_task_record:
+            passed = (sub_task_record.acceptance_status == "pass")
+            if not passed:
+                all_passed = False
+                issues_found = [sub_task_record.verification_result]
 
         sub_task_details.append({
             "id": sub_id,
             "task_id": sub_task.id,
             "name": sub_name,
-            "passed": sub_verification["passed"],
-            "issues": sub_verification["issues"],
+            "passed": passed,
+            "issues": issues_found,
+            "recovery": sub_result.get("recovery", ""),
         })
 
     # Merge sub-outputs
@@ -506,9 +612,9 @@ def decompose_task(
         acceptance_status="pass" if final_verification["passed"] else "fail",
         gate_status="open" if final_verification["passed"] else "closed",
         compressed_judgment=(
-            f"[VERIFIED]: decompose succeeded ({len(sub_tasks)} sub-tasks) | confidence: 0.8"
+            f"[VERIFIED]: decompose sub-graph succeeded ({len(sub_tasks)} sub-tasks) | confidence: 0.8"
             if final_verification["passed"]
-            else f"[FAILED]: decompose produced invalid output | issues: {', '.join(final_verification['issues'][:3])}"
+            else f"[FAILED]: decompose sub-graph produced invalid output | issues: {', '.join(final_verification['issues'][:3])}"
         ),
         add_run_log={
             "timestamp": datetime.now().isoformat(),
@@ -529,6 +635,7 @@ def decompose_task(
         "meta": meta,
         "recovery": "decompose" if final_verification["passed"] else "decompose_failed",
         "sub_tasks": sub_task_details,
+        "sub_graph": sub_graph,  # Return the full parsed sub_graph
     }
 
 
@@ -541,6 +648,7 @@ def execute_with_recovery(
     max_depth: int = DEFAULT_MAX_DEPTH,
     custom_verifier: Callable | None = None,
     log_callback: Callable | None = None,
+    output_dir: str = "",
 ) -> dict:
     """Execute a task with full recovery pipeline: attempt → retry → decompose.
 
@@ -688,8 +796,13 @@ def execute_with_recovery(
     decompose_result = decompose_task(
         task_id, actual_inputs, output, verification["issues"],
         system_prompt, config, depth + 1, max_depth,
-        custom_verifier, log_callback,
+        custom_verifier, log_callback, output_dir,
     )
+
+    # Save the sub-graph into the parent task's sub_graph field
+    sg = decompose_result.get("sub_graph")
+    if sg:
+        update_task(task_id, sub_graph=sg)
 
     if "error" not in decompose_result and decompose_result.get("verification", {}).get("passed"):
         update_task(task_id, status="completed")

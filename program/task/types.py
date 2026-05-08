@@ -50,6 +50,7 @@ class Task:
     evidence_pointers: list[str] = field(default_factory=list)
     memory_path: str = ""           # per-node memory file path
     run_log: list[dict[str, Any]] = field(default_factory=list)
+    sub_graph: dict[str, Any] = field(default_factory=dict)
 
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -87,6 +88,7 @@ class Task:
             "evidence_pointers": self.evidence_pointers,
             "memory_path":      self.memory_path,
             "run_log":          self.run_log,
+            "sub_graph":        self.sub_graph,
             "created_at":   self.created_at,
             "updated_at":   self.updated_at,
         }
@@ -128,6 +130,7 @@ class Task:
             evidence_pointers=data.get("evidence_pointers", []),
             memory_path=data.get("memory_path", ""),
             run_log=data.get("run_log", []),
+            sub_graph=data.get("sub_graph", {}),
             created_at=data.get("created_at", datetime.now().isoformat()),
             updated_at=data.get("updated_at", datetime.now().isoformat()),
         )

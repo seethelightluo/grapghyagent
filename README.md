@@ -1,10 +1,28 @@
-# GraphyAgent
+# GraphyAgent -- Agent for Agent
 
-> A graph-first coding agent for complex tasks: plan first, review first, execute by node, verify every output against spec, audit every node, and save clean node-level memory instead of letting one long conversation carry everything.
+> 用图式思维组织任务、用独立记忆隔离噪声、用可验证的节点输出加速迭代 — 一个为 agent 设计的 agent 运行时。
+>
+> A graph-native runtime for coding agents: organize work as a graph, isolate noise with per-node memory, and iterate faster with verifiable node outputs.
 
 [English](#english) | [中文](#中文)
 
 - Demo: https://seethelightluo.github.io/grapghyagent/
+
+### 3 步上手 GraphyAgent
+
+每一步的提示词已润色，直接复制给你的 code agent 即可。
+
+**Step 1 — 拉取与环境**
+
+> 请从 https://github.com/seethelightluo/grapghyagent 克隆仓库，并进入项目根目录。检查本机 Python 版本（建议 >= 3.10），然后在 program 目录创建虚拟环境并安装依赖。依赖安装请优先遵循 program/README.md 的说明。完成后请列出可用的启动/运行命令与入口脚本，并说明每个命令的用途。
+
+**Step 2 — 填写密钥**
+
+> 打开 program/.env，将 API Key 填入对应字段（如 ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BASE_URL）。如果还提供了代理或 Base URL，也一起填写。.env 只用于本地运行，不要提交到仓库。
+
+**Step 3 — 用图能力解题**
+
+> 先阅读 program/.cheetahclaws/skills/evidence_chain/SKILL.md，提炼它的输入、输出与使用约束。然后使用 program 内置的 agent 或 CLI 来回答你的问题。输出要求：1) 图式拆分（节点、依赖、并行关系）2) 每个节点的输入/输出与 Gate 3) 最终答案 + 关键证据/数据来源摘要。
 
 ---
 
@@ -177,6 +195,9 @@ Harness Agent 已经在“长任务中的恢复、管理、工程隔离”上走
 
 当你的任务满足下面任意几条时，GraphyAgent 会特别有价值：
 
+- 你已经知道普通 agent 经常做偏
+- 你需要在执行前先看计划结构
+- 你希望精确指出哪个节点不对，而不是一直打长段文字
 - 你有多个并行子任务或多个交付物
 - 你担心后期修复和前期实现变成两个不兼容版本
 - 你需要可审计、可追溯、可重跑的过程
@@ -337,6 +358,9 @@ Harness can be seen as a stronger execution substrate; GraphyAgent can be seen a
 
 Use GraphyAgent when you need:
 
+- you know that ordinary agents often drift from your goals
+- you want to review the plan structure before execution
+- you want to point at exactly which node is wrong, instead of writing long paragraphs of feedback
 - better control over dependencies and parallelism
 - auditable and reusable workflows
 - fewer version-mismatch failures near the end of a task
