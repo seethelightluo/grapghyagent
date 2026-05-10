@@ -1,0 +1,108 @@
+{
+  "paper_id": "R1",
+  "paper_title": "Influence of different volume therapies on platelet function in the critically ill",
+  "authors": ["J. Boldt", "M. Müller", "M. Heesen", "O. Heyn", "G. Hempelmann"],
+  "year": 1996,
+  "journal": "Intensive Care Medicine 22(11):1083-1088",
+  "doi": "10.1007/bf01699231",
+  "retraction_reason": "Data fabrication by Joachim Boldt",
+  "nodes": [
+    {
+      "id": "R1N1",
+      "type": "fabricated_data",
+      "text": "56 patients studied: 28 trauma (ISS>15) + 28 sepsis; randomized to HA (n=14 trauma, n=14 sepsis) or 10% HES 200/0.5 (n=14 trauma, n=14 sepsis). Exact 14-per-group allocation is suspiciously uniform.",
+      "evidence_pointer": ["RCT1_full.md:Materials and methods:Patients"],
+      "compressed_judgment": "fabricated_data: Patient numbers exactly 14 per group across 4 groups likely reflect fabricated enrollment rather than actual randomization"
+    },
+    {
+      "id": "R1N2",
+      "type": "fabricated_data",
+      "text": "ADP-induced platelet aggregometry: baseline HES-sepsis 35.5±8.5%, HA-sepsis 36.8±7.8%, HES-trauma 47.6±8.8%, HA-trauma 48.1±9.0%. No significant HES-vs-HA difference at any timepoint over 5 days. Max aggregation decreased days 1-3, recovered by day 5.",
+      "evidence_pointer": ["RCT1_full.md:Results:paragraphs 2-3, Fig.1"],
+      "compressed_judgment": "fabricated_data: Core aggregometry findings showing no HES-vs-HA difference — the primary fabrication target confirmed by retraction notice"
+    },
+    {
+      "id": "R1N3",
+      "type": "fabricated_data",
+      "text": "Collagen-induced platelet aggregometry: similar course in all groups, reduced during first 3 days, reached baseline on day 5, no significant HES-vs-HA difference.",
+      "evidence_pointer": ["RCT1_full.md:Results:paragraph 4, Fig.2"],
+      "compressed_judgment": "fabricated_data: Corroborating dataset for the central no-difference finding"
+    },
+    {
+      "id": "R1N4",
+      "type": "fabricated_data",
+      "text": "Epinephrine-induced platelet aggregometry: similar baseline across groups, reduced first 2 days, exceeded baseline by day 5. No significant HES-vs-HA difference in maximum aggregation or gradient.",
+      "evidence_pointer": ["RCT1_full.md:Results:paragraph 5, Fig.3"],
+      "compressed_judgment": "fabricated_data: Second corroborating dataset for the no-difference finding"
+    },
+    {
+      "id": "R1N5",
+      "type": "fabricated_data",
+      "text": "Volume data: HES trauma 4870±990ml, HES sepsis 3260±790ml, HA trauma 1850±380ml, HA sepsis 1790±400ml by day 5. Standard coagulation parameters (AT III, fibrinogen, PTT) did not differ significantly between HES and HA groups. Fibrinogen higher in HES-sepsis vs HA-sepsis at day 5.",
+      "evidence_pointer": ["RCT1_full.md:Results:paragraph 1, Tables 1-3"],
+      "compressed_judgment": "fabricated_data: Supporting numerical data forming context for fabricated aggregometry results"
+    },
+    {
+      "id": "R1N6",
+      "type": "valid_data",
+      "text": "Platelet dysfunction in critically ill: secondary to extensive bleeding, inflammatory cascade, microcirculation deterioration. Fibrinogen binding and glycoprotein GPIIb-IIIa necessary for aggregation. Alpha and dense granule secretion alters membrane receptors.",
+      "evidence_pointer": ["RCT1_full.md:Introduction:paragraph 1, Discussion:paragraph 1-2"],
+      "compressed_judgment": "valid_data: General platelet pathophysiology from established literature (refs 1-4, 13-18)"
+    },
+    {
+      "id": "R1N7",
+      "type": "valid_data",
+      "text": "New LMW HES (MW 200,000-270,000 Da, lower DS) appears to affect plasma- and platelet-related coagulation to a much lesser extent than older formulations. Prior studies on HMW HES (450,000 Da) showed more pronounced effects on VIIIR:Ag and VIIIR:RCo.",
+      "evidence_pointer": ["RCT1_full.md:Introduction:paragraph 2, Discussion:paragraphs 3-4, refs 9-10, 20-24"],
+      "compressed_judgment": "valid_data: Literature summary of HES formulation effects independently verifiable from cited sources"
+    },
+    {
+      "id": "R1N8",
+      "type": "valid_reasoning",
+      "text": "Platelet aggregometry by turbidimetric method (Born & Cross): ADP 1.0 and 2.0 μmol/l, collagen 4 μg/ml, epinephrine 25 μmol/l. Platelet count adjusted to ~150×10⁹/l. Maximum aggregation (%) and maximum gradient (%/min) measured in duplicate by blinded investigator within 1h of sampling.",
+      "evidence_pointer": ["RCT1_full.md:Materials and methods:Measured parameters"],
+      "compressed_judgment": "valid_reasoning: Standard aggregometry methodology correctly described (ref 13)"
+    },
+    {
+      "id": "R1N9",
+      "type": "wrong_reasoning",
+      "text": "ANOVA with Scheffé test applied to aggregometry data: produced non-significant p-values for HES-vs-HA comparison at all timepoints. Statistical methods technically correct but operate on fabricated inputs, making all p-values meaningless.",
+      "evidence_pointer": ["RCT1_full.md:Statistics, Results"],
+      "compressed_judgment": "wrong_reasoning: Valid statistical methods × fabricated data = meaningless 'no significant difference' result"
+    },
+    {
+      "id": "R1N10",
+      "type": "wrong_reasoning",
+      "text": "Clinical inference that similar APACHE II improvement in HES group (15.6±3.4 vs 20.8±2.3 in sepsis) supports HES safety, despite acknowledged small sample size and no outcome difference in survival.",
+      "evidence_pointer": ["RCT1_full.md:Discussion:paragraph 8, Table 2"],
+      "compressed_judgment": "wrong_reasoning: Extrapolating safety from a small fabricated study to clinical practice is invalid"
+    },
+    {
+      "id": "R1N11",
+      "type": "valid_reasoning",
+      "text": "Literature-based comparison: HMW HES (450,000 Da) diminishes VIIIR:Ag/VIIIR:RCo more than LMW HES. Pentastarch (270,000 Da) has fewer negative effects. LMW HES 200/0.5 reduced factor VIII:C by ~18% in healthy volunteers (ref 24).",
+      "evidence_pointer": ["RCT1_full.md:Discussion:paragraphs 3-4, refs 20-24"],
+      "compressed_judgment": "valid_reasoning: Literature synthesis from independently published sources, verifiable"
+    },
+    {
+      "id": "R1N12",
+      "type": "wrong_conclusion",
+      "text": "Abstract conclusion: 'With respect to platelet function, volume replacement with (lower-priced) low-molecular-weight HES solutions can be recommended in this situation without any risk.' Discussion conclusion: 'LMW HES was found a safe and effective volume substitute, without the risk of relevant adverse effects on platelet aggregation.'",
+      "evidence_pointer": ["RCT1_full.md:Abstract:Conclusions, Discussion:final paragraph"],
+      "compressed_judgment": "wrong_conclusion: Safety claim built entirely on fabricated aggregometry data (R1N2-R1N4) and wrong statistical reasoning (R1N9). This is the primary false output that contaminated downstream literature."
+    }
+  ],
+  "edges": [
+    {"id": "R1E1-2", "from": "R1N1", "to": "R1N2", "relation": "supports"},
+    {"id": "R1E1-3", "from": "R1N1", "to": "R1N3", "relation": "supports"},
+    {"id": "R1E1-4", "from": "R1N1", "to": "R1N4", "relation": "supports"},
+    {"id": "R1E2-9", "from": "R1N2", "to": "R1N9", "relation": "supports"},
+    {"id": "R1E3-9", "from": "R1N3", "to": "R1N9", "relation": "supports"},
+    {"id": "R1E4-9", "from": "R1N4", "to": "R1N9", "relation": "supports"},
+    {"id": "R1E9-12", "from": "R1N9", "to": "R1N12", "relation": "derives"},
+    {"id": "R1E10-12", "from": "R1N10", "to": "R1N12", "relation": "derives"},
+    {"id": "R1E5-10", "from": "R1N5", "to": "R1N10", "relation": "supports"},
+    {"id": "R1E6-8", "from": "R1N6", "to": "R1N8", "relation": "supports"},
+    {"id": "R1E7-11", "from": "R1N7", "to": "R1N11", "relation": "supports"}
+  ]
+}
