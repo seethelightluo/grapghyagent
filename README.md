@@ -1,380 +1,437 @@
-# GraphyAgent -- Agent for Agent
+# GraphyAgent v0.5 Hybrid Memory + Lineage Core
 
-> 用图式思维组织任务、用独立记忆隔离噪声、用可验证的节点输出加速迭代 — 一个为 agent 设计的 agent 运行时。
->
-> A graph-native runtime for coding agents: organize work as a graph, isolate noise with per-node memory, and iterate faster with verifiable node outputs.
+## 中文版
 
-[English](#english) | [中文](#中文)
+### 1. 核心定位
 
-- Demo: https://seethelightluo.github.io/grapghyagent/
+GraphyAgent v0.5 不是单纯的 LangGraph 工作流，也不是只靠一个全局 ReAct/tool loop 的聊天智能体。它的目标是：
 
-### 3 步上手 GraphyAgent
+> 一个能根据进度、节点执行结果、失败原因和历史运行反馈，实时判断是否继续、局部修复、暂停重构或离线优化 workflow 的 graph-native agent runtime。
 
-每一步的提示词已润色，直接复制给你的 code agent 即可。
+核心分工：
 
-**Step 1 — 拉取与环境**
+- `agent_runtime` 保留 Anthropic-style tool loop，负责全局 ReAct 和模块命令调度。
+- `graph_runner` 是唯一真实执行层，负责 `GraphRun`、`NodeRun`、checkpoint、trace 和 artifact。
+- `execution_lineage` 是底层 verifier/checkpoint/dirty-set/replay-boundary 基座。
+- `node_memory` 把 React 和 memory 下沉到每个 `NodeRun` 的局部上下文包。
+- `model_routing` 和 `task_decompose` 是节点级失败恢复消费者。
+- 全局恢复只在节点判断为 graph-level / plan-level failure 后介入，负责图级 ReAct、graph patch/fork 和 checkpoint resume。
 
-> 请从 https://github.com/seethelightluo/grapghyagent 克隆仓库，并进入项目根目录。检查本机 Python 版本（建议 >= 3.10），然后在 program 目录创建虚拟环境并安装依赖。依赖安装请优先遵循 program/README.md 的说明。完成后请列出可用的启动/运行命令与入口脚本，并说明每个命令的用途。
+### 2. 架构层次表
 
-**Step 2 — 填写密钥**
+| 层次 | 主要模块 | 核心功能 | 状态归属 | 禁止事项 |
+| --- | --- | --- | --- | --- |
+| 全局控制层 | `agent_runtime` | Anthropic-style `tool_use/tool_result` 循环；选择下一模块命令；处理 graph-level recovery | agent tool trace | 不把每个 tool call 伪装成 `NodeRun`；不直接乱改运行中图 |
+| 任务规划层 | `task_decompose`, `graph_saver` | 自然语言任务生成 workflow；失败节点拆子图；保存、恢复、fork、merge workflow | graph version / graph patch | 不硬编码样例模板或 benchmark fallback |
+| 图执行层 | `graph_runner` | 调度节点；创建 `GraphRun/NodeRun`；写 checkpoint；并行执行 DAG layer；执行 resume | GraphRun / NodeRun / checkpoint | 不绕过 lineage 盲目跳过成功节点 |
+| 执行血缘层 | `execution_lineage` | preflight/postflight verifier；input fingerprint；artifact provenance；dirty/reusable/replay plan | lineage records / checkpoint manifest | 不调用 LLM；不做恢复策略；不改图 |
+| 节点上下文层 | `node_memory`, `knowledge_graph`, `memory` | 构建 Node Memory Packet；召回 KG evidence；兼容旧 memory | packet / KG view / bounded evidence | 不把旧 memory markdown 作为第二条无界 prompt 注入 |
+| 节点校验层 | `node_audit`, `data_audit` | output contract/gate 校验；数据质量、污染、schema、provenance 审计 | audit verdict / gate status | 不承担图级恢复决策 |
+| 模型与局部恢复层 | `model_routing`, `task_decompose` | 简单失败切复杂模型；复杂失败拆节点；局部 retry / subgraph recovery | route decision / child graph | 不维护自己的 dirty-set 账本 |
+| 在线学习层 | `reflection` | NodeRun 后打 useful/unused/risky/critical/insufficient 标签；更新 KG/边权重 | reflection labels / weight updates | 不在线删除节点或改 workflow |
+| 离线优化层 | `graph_optimizer`, `playbooks`, `evaluation` | 多次运行后挖掘高价值边、低价值节点、可复用子图；产出新版本建议并评估 | optimizer suggestions / graph versions | 不在线替换当前运行图 |
+| 证据与报告层 | `data_manager`, `research` | 文件、artifact、memory、报告、引用、预览链接 | project files / artifacts / reports | 不把存储层变成 prompt 拼接层 |
 
-> 打开 program/.env，将 API Key 填入对应字段（如 ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BASE_URL）。如果还提供了代理或 Base URL，也一起填写。.env 只用于本地运行，不要提交到仓库。
+### 3. 与 LangChain / Claude Code 的比较
 
-**Step 3 — 用图能力解题**
+| 维度 | LangChain / LangGraph 常见形态 | Claude Code 常见形态 | GraphyAgent v0.5 |
+| --- | --- | --- | --- |
+| 核心抽象 | chain、agent executor、graph workflow、state/checkpointer | 全局 ReAct/tool loop，强交互式工具使用 | graph-native runtime：全局 tool loop + workflow graph + lineage + node memory + optimizer |
+| 控制流 | 预定义 workflow 或 agent executor 决策 | 模型持续决定下一步 tool call | 全局 `agent_runtime` 做 tool loop；真实节点执行由 `graph_runner` 管 |
+| 节点状态 | checkpointer 可保存 state，但语义依赖应用设计 | 主要在对话、文件和 tool trace 中 | 每个 `NodeRun` 有 input/output snapshot、packet、lineage、audit、reflection |
+| 记忆方式 | memory/vector store/checkpointer 组合 | 会话上下文、文件系统、工具观察 | hybrid memory：execution lineage、artifact evidence、KG、NodeMemoryPacket、reflection/playbook |
+| 失败恢复 | 通常由应用代码或 graph branch 写死 | 模型在同一 tool loop 中继续试 | 先 node-local failure analysis；节点原因局部修；整体原因暂停 GraphRun 并升级全局 ReAct 改图 |
+| 复用进度 | checkpointer 可恢复，但 dirty/reuse 语义需自建 | 依赖人工判断或上下文记忆 | `strict_fingerprint` 判断 graph/node/input/executor/packet policy 是否可复用 |
+| 图修改 | 可通过程序修改 graph，通常偏静态 | 可以改文件/计划，但不一定形成版本化 workflow | graph patch/fork/version 由 `graph_saver` 管；运行中失败节点保留 trace，边可 blocked/stale/superseded |
+| 学习闭环 | 通常外接 eval / memory update | 总结经验，但结构沉淀弱 | `reflection` 在线打标；`graph_optimizer` 离线剪枝、合并、提炼 playbook |
+| 审计性 | 取决于应用日志 | tool trace 强，但节点契约弱 | GraphRun/NodeRun/lineage/audit/artifact/report 全链路可查 |
+| 与 Claude Code 的关系 | 可替代部分 agent orchestration | 强全局工具循环 | 不替代 Claude Code 式 tool loop，而是把 ReAct 和 memory 局部化到可维护 workflow |
 
-> 先阅读 program/.cheetahclaws/skills/evidence_chain/SKILL.md，提炼它的输入、输出与使用约束。然后使用 program 内置的 agent 或 CLI 来回答你的问题。输出要求：1) 图式拆分（节点、依赖、并行关系）2) 每个节点的输入/输出与 Gate 3) 最终答案 + 关键证据/数据来源摘要。
+### 4. 标准失败升级路径
 
----
+GraphyAgent 的恢复目标不是“失败后继续瞎试”，而是先诊断失败归因，再决定局部恢复还是图级重构。
 
-## 中文
+```text
+NodeRun failed
+  -> graph_runner 保存失败 NodeRun、日志、参数、artifact、checkpoint
+  -> execution_lineage 记录 input fingerprint、output/log artifacts、dirty 边界
+  -> node_audit / executor 生成 failure evidence
+  -> failure_analysis 判断失败范围
+     - node_local: 节点自身、模型能力、参数、局部输入、环境小问题
+     - evidence_level: 上游证据不足、数据来源不可信、schema/provenance 缺失
+     - environment_level: Python/CUDA/GPU/依赖/权限/外部服务问题
+     - graph_level / plan_level: 原任务拆解、依赖边、执行策略、整体假设错误
+```
 
-## 为什么还需要 graphyagent？
+| 失败归因 | 处理方式 | 典型模块 | 是否暂停 GraphRun |
+| --- | --- | --- | --- |
+| `node_local` | 换模型、改 prompt、局部 retry、拆当前节点 | `model_routing`, `task_decompose.decompose_node`, `graph_runner.run_node` | 不一定暂停整图，只阻断当前节点下游 |
+| `evidence_level` | 新增取证/审计节点，修正上游输入，再 resume | `data_audit`, `node_memory`, `knowledge_graph`, `task_decompose` | 暂停受影响分支 |
+| `environment_level` | 保存环境错误，修复依赖或降级执行策略 | `graph_runner`, `model_routing`, `data_manager` | 暂停受影响节点 |
+| `graph_level` / `plan_level` | 暂停 GraphRun，升级给全局 agent，重构失败节点相关边和策略 | `agent_runtime`, `graph_saver`, `task_decompose`, `execution_lineage`, `graph_runner.resume_from_checkpoint` | 是 |
 
-很多 code agent 已经很强了。  
-但在真正复杂、长链、多约束、需要中途纠偏的任务里，用户经常遇到的不是“模型不会写代码”，而是下面这几类问题：
+图级恢复标准流程：
 
-### 场景 1：你发现 agent 已经做偏了，但它纠不回来
+```text
+graph_runner marks run as paused_for_replan
+  -> failed node remains in trace
+  -> downstream edges become blocked/stale/superseded
+  -> checkpoint is saved
+  -> agent_runtime global tool loop reads run state
+  -> agent_runtime calls task_decompose / graph_saver to create patch or fork
+  -> graph_runner.resume_from_checkpoint reuses unchanged successful nodes
+  -> only dirty/recovery branches rerun
+```
 
-你看到 agent 的工作方向已经偏离目标，于是输入一段纠错指令。  
-问题是，agent 往往已经把之前任务压缩成模糊上下文，新的纠错命令不能准确地落在正确的步骤和依赖上。  
-结果就是：你明明指出了问题，agent 却像“听懂了一半”。
+说明：
 
-### 场景 2：任务快完成了，最后几步出了错，但你很难一次讲清楚
+- 失败节点不应被静默删除；它是 trace 和学习材料。
+- 可以断开失败节点到下游的边，防止错误 artifact 污染最终输出。
+- 可以新增 `analyze_failure`、`repair_inputs`、`alternative_method`、`retry_node` 等 recovery branch。
+- 真正删除、合并、降级节点更适合由 `graph_optimizer` 在离线阶段提出新 graph version。
 
-agent 已经完成了 90%。  
-最后几步出现多个错误：顺序错了、输出字段错了、依赖断了、某个文件格式不对。  
-你辛苦写一大段反馈，逐条描述每个错误，但 agent 很难完整吸收，常常只修一部分，甚至修了一个又破坏另一个。
+### 5. 模块与 tool / 功能顺序说明
 
-### 场景 3：最后几步虽然修对了，但和前面的版本已经不兼容
+#### 5.1 `agent_runtime`
 
-你成功纠正了最后几步。  
-但因为前面执行过程已经被压缩或遗忘，agent 现在是在“缺少上文”的状态下补最后几步。  
-于是出现一种很典型的失败：前面的实现本身没错，后面的修复本身也没错，但它们实际上属于两个不兼容的版本。
+职责：全局模块命令调度和 Anthropic-style ReAct/tool loop。它负责“下一步调用哪个模块命令”，不负责伪造 `NodeRun`。
 
-### 场景 4：你有很复杂的真实需求，但 agent 按自己的默认套路拆错了
-
-你辛苦写了一大段任务说明，尤其是那种“一个项目要同时产出多个维度结果”的任务。  
-agent 看起来给了一个合理流程：探索阶段 → 设计方案 → 实现 → 测试验证。  
-但细节不对：顺序不对、依赖不对、漏掉你特别在意的小任务、把并行关系误拆成串行。  
-接下来你只能继续用长文本反复纠偏，而且越改越难讲清楚。
-
----
-
-## GraphyAgent 解决什么问题？
-
-
-它的思路是：**先把任务变成一个可验证的 task graph，再按节点执行、按节点验证、按节点审计、按节点记忆。**
-
-> 不把整个复杂任务交给一段会话上下文，而是拆成带 input_spec/output_spec（I/O 契约）、verification_rule（验证规则）、gate_condition（门控条件）、necessity_audit（必要性审计）、evidence_pointers（证据指针）和 per-node memory 的图执行流程。
-
----
-
-## GraphyAgent 的核心优势
-
-### 1. 用户可以先审 graph，再让 agent 干活
-
-在执行之前，GraphyAgent 会先生成任务图。  
-图里会明确每个节点的职责、输入、输出、依赖关系、验证方式和 gate。  
-这时你不是只能对一大段自然语言说“这里不对”，而是可以非常直接地指出：
-
-- 这个节点不该存在
-- 这个节点漏了
-- 这个节点应该依赖另一个节点
-- 这两个节点应该并行，不应该串行
-- 这个节点的 output_spec 写错了
-
-也就是说，**你纠错的对象从“整段模糊计划”变成了“具体图结构”**。
-
-### 2. memory 不再是整段对话压缩，而是节点级的干净记忆
-
-传统 code agent 很依赖长会话上下文和压缩记忆。  
-一旦任务很长，信息精度会损失，旧噪声会混进来，后续步骤读到的是“混合过的历史”。  
-
-GraphyAgent 的 memory 是按节点组织的：
-
-- 只装载当前节点真正需要的上下文
-- 保存该节点的输入、输出、审计结果、证据指针
-- 压缩的是节点 judgment，而不是整条任务的模糊摘要
-
-这样做的好处是：
-
-- 更干净，噪声更少
-- 更聚焦，不会把无关历史塞进当前步骤
-- 更容易复用，因为节点记忆天然绑定职责边界
-
-### 3. 节点失败时，不是整条链一起崩
-
-当某个节点失败时，GraphyAgent 可以：
-
-- 重试当前节点
-- 对当前节点再拆分成更细的子图
-- 触发独立 audit，分析失败原因
-- 把失败结论写入节点的 run_log 和 compressed_judgment，而不是污染整条任务上下文
-
-这意味着失败被限制在**节点**范围，而不是把整个任务拖回“大段重新解释”的状态。  
-复杂任务里，这一点非常关键。
-
-### 4. 每个节点只对自己的 input_spec / output_spec 负责，减少版本串线
-
-在规划阶段，GraphyAgent 就会定义每个节点的输入和输出。  
-节点不是“尽量完成一个模糊目标”，而是“交付一个明确 output”。  
-
-这样做的意义是：
-
-- 后续修复时不会无意改坏前面步骤
-- 节点之间通过 spec 对接，不靠模糊语义猜测
-- 更容易发现“前后两步各自都对，但拼起来不兼容”的问题
-
-### 5. 图拆分比线性步骤更适合复杂精细任务
-
-很多 agent 默认把任务写成线性流程：
-
-1. 探索
-2. 设计
-3. 实现
-4. 测试
-
-这对简单任务够用。  
-但对复杂任务，问题往往不在线性步骤本身，而在：
-
-- 哪些任务能并行
-- 哪些依赖必须先满足
-- 哪些只是辅助步骤，哪些才是关键节点
-- 哪些结果要共享给多个后续节点
-
-GraphyAgent 用 graph 表达依赖和数据传递，而不是只表达顺序。  
-因此它更适合：
-
-- 多目标任务
-- 并行子任务
-- 带多个交付物的任务
-- 中间结果需要复用的任务
-- 对可验证性要求高的任务
-
----
-
-## 和其他方案相比，差别在哪？
-
-### GraphyAgent vs Claude Code（ReAct 风格）
-
-Claude Code 很强，尤其在单次迭代、交互式修复、即时工具调用上非常顺手。  
-但它更偏向“在会话里持续推进任务”，而不是先把整个任务图显式建模。
-
-| 维度 | GraphyAgent | Claude Code（ReAct 风格） |
+| Tool / 功能 | 作用 | 常见后续 |
 | --- | --- | --- |
-| 任务组织 | 先建 graph，再按节点执行 | 在会话中边想边做 |
-| 用户纠偏 | 先审图，纠偏对象明确 | 主要通过补充自然语言反馈纠偏 |
-| 记忆方式 | 节点级 memory，按职责隔离 | 更依赖共享会话上下文与压缩 |
-| 节点失败处理 | 可重试、可再拆分、可独立审计 | 通常靠继续对话修复 |
-| 并行与依赖表达 | 显式表达 dependencies 和 data flow | 可以处理，但通常不是一等结构 |
-| 最适合的任务 | 长链、复杂、多约束、多交付任务 | 快速迭代、局部修复、交互式编码 |
+| `chat_graph` | 面向 project/graph 的主聊天入口，内部使用 `tool_use/tool_result` 循环 | `InspectWorkspace`, `DecomposeTaskToGraph`, `RunGraph`, `UpdateWorkflowGraph` |
+| `list_modules` | 列出可用模块 | `list_module_commands` |
+| `list_module_commands` | 列出某模块可调用命令 | 对应模块命令 |
+| `list_module_skills` | 读取模块 skill 指南 | `recommend_next_modules` |
+| `recommend_next_modules` | 根据事件或失败文本推荐下一模块 | failure recovery |
+| `target_context` | 获取当前 project/graph/node 上下文 | 任意模块调度 |
+| `execute_tool` | 执行注册工具 | 工具结果进入 tool loop |
 
+全局恢复时，`agent_runtime` 读取 `GraphRun`、`NodeRun`、lineage、audit 和 reflection，然后通过模块命令生成 graph patch/fork，而不是直接改内存状态。
 
-### GraphyAgent vs Harness Agent
+#### 5.2 `core`
 
-Harness Agent 已经在“长任务中的恢复、管理、工程隔离”上走得更前。  
-它解决了很多“agent 跑着跑着乱掉”的问题。  
+职责：GraphConfig、schema 和基础结构检查。
 
-但 GraphyAgent 的重点不同：  
-它不是主要从 worktree / 工程工作区的角度管理任务，而是从**节点执行**的角度组织 memory 和 audit。
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `load_graph_config` | 读取 JSON/YAML 图配置 |
+| `inspect_graph_config` | 归一化图配置并查看路由预览 |
+| `graph_schema` | 返回支持的 graph/node/executor/contract schema |
 
-| 维度 | GraphyAgent | Harness Agent |
+#### 5.3 `data_manager`
+
+职责：项目、文件、artifact、旧 memory 和虚拟文件树。
+
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `create_project` / `create_graph` / `save_graph` | 维护 project 和 graph 基础数据 |
+| `import_file` / `move_file` / `delete_file` | 管理 project 文件和节点文件 |
+| `write_memory` / `read_memory` | 读写兼容旧 memory |
+| `register_artifact` / `list_artifacts` | 管理内容寻址 artifact |
+| `snapshot` / `list_managed_files` | 排查项目、图、节点和文件树状态 |
+
+#### 5.4 `task_decompose`
+
+职责：自然语言任务生成 workflow；失败节点或过大节点拆成更小子图。
+
+| Tool / 功能 | 作用 | 使用场景 |
 | --- | --- | --- |
-| 核心视角 | 节点语义、input_spec/output_spec、verification_rule、gate_condition、necessity_audit、evidence_pointers、节点记忆 | 工程隔离、任务恢复、工作区管理 |
-| memory 组织 | 节点级 memory，绑定当前职责 | 更偏任务/工作区粒度的状态管理 |
-| 用户纠偏入口 | 改 graph、改节点 spec、改依赖 | 改任务或继续驱动执行 |
-| 失败定位 | 哪个节点失败、为什么失败、证据在哪 | 哪个任务或执行阶段出问题 |
-| 优势场景 | 复杂依赖、多交付、强审计需求 | 长任务恢复、工程执行稳定性 |
+| `decompose_task_to_graph` | 把用户目标生成或重建 workflow graph | 初始规划、plan-level recovery |
+| `decompose_node` | 把失败或过大的节点拆成子节点 | node-local failure、职责过宽 |
+| `build_retry_prompt` | 构造失败重试提示 | 局部 retry |
+| `build_decompose_prompt` | 构造拆解提示 | 子图生成 |
 
+说明：`decompose_node` 已经存在，是节点失败后继续拆解的核心入口；plan-level failure 需要通过全局 loop 调用它或重新生成相关子图。
 
-- Harness 更像“更强的任务执行与恢复底座”
-- GraphyAgent 更像“更强的图式规划、节点记忆和语义审计层”
+#### 5.5 `graph_saver`
 
+职责：workflow 持久化、版本、恢复、导入导出和 checkpoint fork。
 
-## 什么时候应该用 GraphyAgent？
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `save_workflow` | 保存当前图版本 |
+| `list_versions` | 查看历史版本 |
+| `restore_version` | 恢复指定版本 |
+| `export_workflow` / `import_workflow` | 导出或导入可复用 workflow |
+| `merge_workflow` | 合并外部图、模板图或同项目图 |
+| `fork_from_checkpoint` | 从 GraphRun checkpoint 创建新 workflow 分支 |
 
-当你的任务满足下面任意几条时，GraphyAgent 会特别有价值：
+图级恢复时，推荐保留失败 run，用 `fork_from_checkpoint` 或 graph patch 生成 recovery version。
 
-- 你已经知道普通 agent 经常做偏
-- 你需要在执行前先看计划结构
-- 你希望精确指出哪个节点不对，而不是一直打长段文字
-- 你有多个并行子任务或多个交付物
-- 你担心后期修复和前期实现变成两个不兼容版本
-- 你需要可审计、可追溯、可重跑的过程
+#### 5.6 `graph_runner`
 
-从技术能力角度，GraphyAgent 特别适合这些场景：
+职责：唯一真实执行器。它创建 `GraphRun` / `NodeRun`，写 checkpoint、trace、artifact，并根据 lineage 做 resume/reuse。
 
-- **复杂依赖和并行任务** — graph 的 `blocked_by`/`blocks` 边显式表达依赖关系，支持并行节点。哪些任务能并行、哪些依赖必须先满足、哪些结果要共享给多个后续节点，全部在图结构里一目了然，不需要靠长文本反复解释。
-- **必要性审计配合图实现最简流程** — 每个节点必须声明 `necessity_audit`（"如果我去掉这个节点会怎样？"）。如果去掉某个节点目标仍然达成，该节点会被剪掉。这让图始终保持最小必要结构，模型不会做多余的事。
-- **节点失败时拆分成子图，保证每步难度适当** — 当某个节点验证失败且重试仍然不过时，`TaskDecompose` 会把它拆成 2-3 个更细的子节点。这意味着模型在每一步面对的都是难度适当的子任务，而不是一个过大过难的原始目标。上游已通过的节点结果完全保留，不动。
-- **I/O 验证而不只是"看起来对"** — `verify_output()` 做 structural check + type check，不依赖 LLM 自判。输出是否符合 `output_spec`，是程序检查的，不是模型自己说"我觉得对了"。
-- **独立审计而不只是自检** — `subagent_type="auditor"` 用受限工具集（只读）做独立 review，产出 PASS/FAIL + confidence score。审计和执行是分离的。
-- **节点级干净记忆而不是整段对话压缩** — `TaskWriteMemory` 程序生成 memory.md，用 `json.dumps()` 写入原始数据，不经过 LLM 摘要。每个节点的输入、输出、验证结果、证据指针都是精确记录。
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `run_graph` | 执行整图 |
+| `run_node` | 执行节点及其上游依赖 |
+| `resume_from_checkpoint` | 从 checkpoint 续跑，默认 `strict_fingerprint` |
+| `list_runs` / `show_run` / `list_node_runs` | 查看运行和节点运行列表 |
+| `timeline` / `show_node_run` | 查看时间线和单个 NodeRun 详情 |
+| `list_run_outputs` / `list_run_errors` | 查看输出和错误 |
+| `list_graph_outputs` | 查看 graphoutput |
+| `list_checkpoints` / `read_checkpoint` | 查看 checkpoint |
+| `show_run_manifest` | 查看配置 hash、路由、输出计数 |
+| `export_trace_dataset` | 导出 GraphRun/NodeRun 轨迹数据集 |
 
----
+标准节点生命周期：
 
-## 一个更准确的理解方式
+```text
+verify_node_inputs
+  -> prepare_node_context
+  -> execute node
+  -> validate_node_outputs
+  -> record_node_lineage
+  -> run_online_reflection
+  -> apply_feedback_updates
+  -> checkpoint
+```
 
-GraphyAgent 不是“另一个会写代码的 agent”。  
-它更像是一个 **graph-native runtime for coding agents**：
+已实现的图级恢复接口：
 
-- graph planning
-- user review before execution
-- node-level isolated memory (TaskWriteMemory — programmatic, not LLM-summarized)
-- retry / re-decompose on failure (TaskExecuteRecovery — three-level automatic pipeline)
-- gate-controlled execution (TaskGateCheck — blocks downstream on failure)
-- evidence chains (evidence_pointers — every execution logged to file)
-- necessity audit (counterfactual: "if I remove this node, what breaks?")
-- independent audit (auditor subagent with restricted read-only tools)
-- spec-based delivery (input_spec / output_spec with structural verification)
+| 接口 | 作用 |
+| --- | --- |
+| `classify_node_failure` | 生成 node_local / graph_level / plan_level 等失败归因 |
+| `pause_for_replan` | graph-level / plan-level failure 时把 GraphRun 标记为 `paused_for_replan` 并写入 replan event |
+| `mark_edges_blocked` | 标记失败节点下游边为 blocked/stale/superseded，并可把下游依赖改接到 replacement node |
 
-它要解决的，不是“模型不会写”，而是：
+#### 5.7 `execution_lineage`
 
-> 当任务变长、变复杂、变多依赖、变多版本时，如何让 agent 仍然可控、可纠偏、可审计、可复用。
+职责：确定性执行血缘、checkpoint verifier、dirty node 判断和 replay boundary。
 
----
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `verify_node_inputs` | 节点执行前验证输入 artifact、上游输出和 fingerprint |
+| `record_node_lineage` | 节点执行后写入 lineage record |
+| `plan_replay_from_checkpoint` | 比较 checkpoint 与当前 graph/state，计算 reusable/dirty 节点 |
+| `list_dirty_nodes` | 查询 dirty/reusable 节点 |
 
-## Demo
+它只回答“什么变了、哪里能复用、哪里要重跑”，不决定“如何修”。
 
-- Demo: https://seethelightluo.github.io/grapghyagent/
+#### 5.8 `knowledge_graph`
 
----
+职责：语义记忆、知识节点/边/权重、Node-Knowledge View。
 
-## English
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `build_for_project` | 从 project 文件、graph、节点定义构建 KG |
+| `refresh_from_run` | GraphRun 后把运行摘要和 NodeRun 写入 KG |
+| `build_view_for_node` | 为节点返回 background/evidence/quarantine 分层视图 |
+| `update_weights_from_feedback` | 根据 reflection 标签更新权重 |
 
-[English](#english) | [中文](#中文)
+#### 5.9 `node_memory`
 
-## Why another coding agent?
+职责：把 lineage、KG 和兼容旧 memory 压缩成 `NodeMemoryPacket`。
 
-Many coding agents are already powerful.  
-But in long, complex, multi-constraint workflows, users still run into the same failures:
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `prepare_node_context` | 构建 v2 Node Memory Packet |
+| `summarize_context_for_model` | 把 packet 渲染成模型可消费摘要 |
+| `record_context_usage` | 记录上下文候选是否被使用 |
+| `update_gap_state` | 记录证据缺口 |
 
-1. The agent drifts, and a correction message does not fully pull it back.
-2. The task is 90% done, but the last few steps fail in multiple ways, and it is hard to explain every issue clearly.
-3. The final fixes look correct, but they no longer match the earlier implementation, so the project ends up with two incompatible versions.
-4. The agent decomposes a complex request into a reasonable-looking but wrong sequence, and the user has to keep correcting the plan in long natural-language messages.
+规则：
 
-GraphyAgent is built for these cases.
+- 旧 `memory.context` 只能作为 bounded evidence item 或 KG candidate。
+- 不允许把旧 memory markdown 默认整段注入 prompt。
+- packet hash 和 retrieval policy version 要参与 checkpoint reuse 判断。
 
-## What GraphyAgent does differently
+#### 5.10 `memory`
 
-GraphyAgent turns a complex task into a verifiable execution graph before running it.
+职责：兼容旧 project/graph/node memory。
 
-Each node has:
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `find_relevant_memories` | 按查询词找相关记忆 |
+| `get_memory_context` | 渲染兼容上下文片段 |
 
-- a clear role
-- input_spec / output_spec (typed I/O contracts)
-- dependency edges (blocked_by / blocks)
-- verification rules (structural + type check, not LLM self-judgment)
-- gate conditions (blocks downstream on failure)
-- necessity audit (counterfactual: "if removed, what breaks?")
-- evidence pointers (logged prompt + response per execution)
-- node-level memory (program-generated with raw JSON, not LLM-summarized)
+长期方向：作为兼容数据源，逐步通过 `knowledge_graph` / `node_memory` 进入 packet，不再是默认第二条 prompt 通道。
 
-This means the user can correct the **structure of the plan**, not just react to mistakes after execution has already started.
+#### 5.11 `node_audit`
 
-## Core advantages
+职责：节点必要性、contract、gate、删除风险审计。
 
-### 1. Review the graph before execution
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `audit_node_necessity` | 判断节点是否必要、可合并或可删除 |
+| `validate_node_contract` | 校验 input_spec、required inputs、gate、输出绑定 |
+| `validate_node_outputs` | 节点执行后校验 output contract |
 
-Instead of asking the model to carry the whole plan in one conversation, GraphyAgent first exposes the graph:
+#### 5.12 `data_audit`
 
-- which nodes exist
-- which nodes are missing
-- which nodes should depend on which
-- which nodes should run in parallel
-- what each node must deliver
+职责：数据质量、schema、provenance、污染、后训练数据风险审计。
 
-That makes correction much easier.
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `audit_dataset` | 输出 audit_report、record_tags、evidence、quality_dimensions、risk_assessment、review_queue |
 
-### 2. Node-level memory instead of one noisy compressed conversation
+数据审计结论应作为 evidence artifact 进入 KG/packet，不应直接变成无来源 prompt 文本。
 
-Traditional agents often rely on long shared context and compression.  
-Over time, precision drops and irrelevant history leaks into later steps.
+#### 5.13 `model_routing`
 
-GraphyAgent stores memory at the node level:
+职责：API profile、简单/复杂模型路由、LLM fallback。
 
-- only the context needed for that node
-- the node’s input and output
-- audit result and evidence pointer
-- compressed judgment tied to that node
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `read_settings` / `update_settings` | 读写本地 API 配置 |
+| `route_node` | 预览节点路由 |
+| `chat_completion` | 按 profile 调用 LLM，可配置 fallback |
 
-This keeps memory cleaner and more reusable.
+恢复规则：
 
-### 3. Failure stays local
+- 简单 profile 失败时可切复杂 profile。
+- 复杂 profile 失败后不要盲目重试，应进入 `task_decompose.decompose_node` 或升级 graph-level recovery。
 
-If one node fails, GraphyAgent can:
+#### 5.14 `reflection`
 
-- retry the node with failure context injected
-- decompose the node into a finer subgraph (2-3 sub-nodes of appropriate difficulty)
-- run an independent audit to analyze the failure
-- save the failure result into node's run_log and compressed_judgment
+职责：NodeRun 后在线 credit assignment。
 
-Upstream results are preserved. The whole workflow does not need to collapse back into one giant conversation.
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `run_online_reflection` | 读取 NodeRun/packet，生成 upstream 和 KG 使用标签 |
+| `apply_feedback_updates` | 把标签应用到 KG/edge 权重 |
 
-### 4. Each node is responsible for its own spec
+它可以打标签和更新权重，不能在线删除节点、断边或改图。
 
-Because input_spec and output_spec are defined early, later fixes are less likely to silently break earlier work.
-Nodes connect through explicit typed boundaries rather than vague conversational assumptions.
+#### 5.15 `graph_optimizer`
 
-### 5. Graph decomposition fits complex work better than linear step lists
+职责：离线图优化。
 
-For simple tasks, a linear process is enough.  
-For complex tasks, what matters is not only order, but also dependency, reuse, parallelism, and delivery boundaries.
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `analyze_graph_runs` | 汇总历史运行、边效用、子图候选和建议 |
+| `compute_edge_utilities` | 计算边效用 |
+| `mine_reusable_subgraphs` | 挖掘可复用 motif |
+| `suggest_structure_changes` | 生成结构建议 |
+| `materialize_new_graph_version` | 物化候选 graph version |
 
-GraphyAgent models those relationships explicitly.
+它可以建议删除、合并、降级低价值审计节点，但不能在线修改当前运行图。
 
-## Comparison
+#### 5.16 `playbooks`
 
-### GraphyAgent vs Claude Code
+职责：可复用子图 motif 和经验沉淀。
 
-Claude Code is strong for interactive coding and quick iteration.  
-But it is still mostly conversation-driven.
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `serialize_subgraph` | 把一组节点序列化为 playbook |
+| `match_playbooks` | 按任务或图节点关键词匹配 playbook |
 
-| Dimension | GraphyAgent | Claude Code |
-| --- | --- | --- |
-| Task organization | Graph-first, then execute by node | Conversation-driven reasoning and tool use |
-| Correction flow | Review and edit the graph before execution | Correct through more natural-language feedback |
-| Memory | Node-level isolated memory | More dependent on shared conversation context |
-| Failure handling | Retry, re-decompose into subgraph, audit per node | Usually continue the conversation and repair |
-| Best fit | Long, structured, multi-deliverable workflows | Fast iteration and interactive coding |
+playbook 必须来自重复成功结构、用户显式提供结构或 optimizer 证据；不能来自 benchmark 样例污染。
 
-### GraphyAgent vs Harness Agent
+#### 5.17 `evaluation`
 
-Harness is stronger as an execution and recovery foundation.  
-GraphyAgent focuses more on graph planning, node semantics, node memory, and node-level audit.
+职责：graph version 回归评估和 promotion 前比较。
 
-| Dimension | GraphyAgent | Harness Agent |
-| --- | --- | --- |
-| Core abstraction | Node graph with specs, gates, and audits | Task/workspace execution and recovery |
-| Memory organization | Node-level semantic memory | More task/workspace-oriented state |
-| Failure localization | Which node failed and why | Which task/stage failed |
-| Best fit | Complex dependency-heavy workflows | Long-running execution reliability |
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `compare_graph_versions` | 比较 base/candidate graph |
+| `graph_metrics` | 计算单图结构指标 |
+| `load_task_set` | 加载外部 task set |
+| `render_evaluation_report` | 渲染评估报告 |
 
-They are not mutually exclusive.  
-Harness can be seen as a stronger execution substrate; GraphyAgent can be seen as a stronger graph-native planning and memory layer.
+#### 5.18 `multi_agent`
 
-## When to use GraphyAgent
+职责：为并行 DAG layer 生成 node-runner 子 agent 计划。
 
-Use GraphyAgent when you need:
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `plan_parallel_node_agents` | 分析可并行节点并生成子 agent 任务 |
+| `create_agent_task` | 创建单个子 agent 任务描述 |
 
-- you know that ordinary agents often drift from your goals
-- you want to review the plan structure before execution
-- you want to point at exactly which node is wrong, instead of writing long paragraphs of feedback
-- better control over dependencies and parallelism
-- auditable and reusable workflows
-- fewer version-mismatch failures near the end of a task
+真实执行仍由 `graph_runner` 完成。
 
-Technical capabilities that matter:
+#### 5.19 `research`
 
-- **Complex dependencies and parallel tasks** — `blocked_by`/`blocks` edges express dependency explicitly. Which tasks can run in parallel, which must complete first, which results are shared — all visible in the graph structure.
-- **Necessity audit + graph = simplest possible workflow** — every node must justify its existence via `necessity_audit`. If removing a node still achieves the goal, it gets pruned. The graph stays minimal.
-- **Failed nodes decompose into subgraphs** — when a node fails verification and retry doesn't help, `TaskDecompose` breaks it into 2-3 finer sub-nodes. The model faces appropriately scoped sub-tasks at every step. Upstream results are preserved.
-- **I/O verification, not "looks right"** — `verify_output()` does structural + type checking programmatically against `output_spec`. No reliance on LLM self-judgment.
-- **Independent audit, not self-check** — `subagent_type="auditor"` runs with restricted read-only tools. Audit and execution are separated.
-- **Clean node-level memory** — `TaskWriteMemory` generates `modules/node_N/memory.md` programmatically with `json.dumps()`, bypassing LLM summarization bias.
+职责：引用和报告渲染。
 
-## One-line summary
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `render_citations` | 渲染编号引用 |
+| `render_without_llm` | 不调用 LLM 生成 Markdown 报告 |
+| `render_report` | 写出 Markdown/HTML 报告并注册 artifact |
 
-GraphyAgent is not just another coding agent.
-It is a graph-native runtime for coding agents that decomposes complex tasks into verifiable nodes with typed I/O specs, automatic recovery, gate control, evidence chains, and independent audit — keeping long workflows controllable and correct.
+#### 5.20 `front_bridge`
+
+职责：Web/API/CLI 与后端 command queue 的桥接。
+
+| Tool / 功能 | 作用 |
+| --- | --- |
+| `serve` | 启动 Web/API |
+| `submit_agent_command` | 提交命令 |
+| `process_agent_command` | 处理队列命令 |
+| `list_agent_commands` | 查看命令历史 |
+| `agent-worker --watch` | CLI 持续处理队列命令 |
+
+前端只提交意图，复杂 routing 和 recovery 应留在后端模块命令中。
+
+### 6. 反样例污染规则
+
+GraphyAgent 的 decomposition、packet construction、recovery、optimizer、playbook 和 evaluation 路径禁止引入 benchmark 样例污染。
+
+禁止：
+
+- 硬编码 benchmark sample 或 task template answer。
+- 根据评测题格式写固定 fallback。
+- 在 prompt/recovery/KG/playbook 中注入样例答案。
+- 用示例数据污染 KG 权重或 optimizer 统计。
+
+允许：
+
+- 模块 `skill.md` 中的通用操作原则。
+- agent-level 行为提示词。
+- 通用验证、搜索、引用、证据要求。
+- 与具体 benchmark 答案无关的模块接口说明。
+
+### 7. 当前实现状态
+
+已经具备：
+
+- 全局 Anthropic-style tool loop。
+- `GraphRun` / `NodeRun` 执行和 trace。
+- `execution_lineage` preflight / record / replay plan。
+- `NodeMemoryPacket` v2 和 packet hash。
+- `model_routing` 复杂模型 fallback。
+- `task_decompose.decompose_node` 失败节点拆解入口。
+- `resume_from_checkpoint` strict fingerprint 复用。
+- online reflection 和 KG 权重更新。
+
+本次已补上的图级恢复接口：
+
+- `classify_node_failure`：失败归因。
+- `pause_for_replan`：graph-level failure 暂停当前 GraphRun。
+- `mark_edges_blocked/stale/superseded`：阻断失败输出污染下游。
+- `replan_subgraph`：生成图级 recovery patch，可选择 `save/apply` 写回当前 workflow。
+- `recover_graph_failure`：全局恢复编排，按 failure_scope 决定节点局部恢复还是图级 pause + replan。
+- skill 中把 node-local recovery 与 graph-level recovery 的升级路径持续保持一致。
+
+已验证：
+
+- 全包 Python 语法编译通过。
+- 模块主接口 import 和新 module-command 注册解析通过。
+- `agent_runtime.recover_graph_failure` 端到端烟测通过，可从 graph-level failure 生成候选 recovery branch。
+
+## English Version
+
+GraphyAgent v0.5 is a graph-native agent runtime, not just a static LangGraph workflow and not just a global chat-style ReAct agent. It keeps the global Anthropic-style tool loop in `agent_runtime`, but pushes React and memory into bounded, auditable, node-local execution through `graph_runner`, `execution_lineage`, `node_memory`, `knowledge_graph`, and `reflection`.
+
+The main distinction is:
+
+- Global loop: decides which module command to call next.
+- Workflow runtime: creates real `GraphRun` and `NodeRun` records.
+- Lineage: decides what changed, what is stale, and what can be reused.
+- Node memory: decides what each node is allowed to see.
+- Recovery: node-local failures go through `model_routing` or `task_decompose`; graph-level failures pause the run and escalate to global ReAct.
+- Offline optimization: repeated traces become graph-version suggestions, playbooks, and evaluation candidates.
+
+Compared with LangChain/LangGraph, GraphyAgent makes lineage, node memory, audit, reflection, and optimizer first-class module surfaces instead of leaving those policies to application code. Compared with Claude Code, GraphyAgent keeps the strong tool loop but binds tool use to workflow state, artifacts, checkpoints, and replayable node traces.
+
+Current implemented recovery commands:
+
+- `graph_runner.classify_node_failure`
+- `graph_runner.pause_for_replan`
+- `graph_runner.mark_edges_blocked`
+- `task_decompose.replan_subgraph`
+- `agent_runtime.recover_graph_failure`
+
+The current validation pass covers Python compilation, module imports, command registry resolution, and an end-to-end recovery smoke test that creates a candidate recovery branch from a graph-level node failure.
