@@ -188,13 +188,13 @@ verify_node_inputs
   -> checkpoint
 ```
 
-待补强接口建议：
+已实现的图级恢复接口：
 
-| 建议接口 | 作用 |
+| 接口 | 作用 |
 | --- | --- |
-| `classify_node_failure` | 生成 node_local / evidence_level / environment_level / graph_level 失败归因 |
-| `pause_for_replan` | graph-level failure 时暂停 GraphRun 并保存 checkpoint |
-| `mark_edges_blocked` | 标记失败节点下游边为 blocked/stale/superseded |
+| `classify_node_failure` | 生成 node_local / graph_level / plan_level 等失败归因 |
+| `pause_for_replan` | graph-level / plan-level failure 时把 GraphRun 标记为 `paused_for_replan` 并写入 replan event |
+| `mark_edges_blocked` | 标记失败节点下游边为 blocked/stale/superseded，并可把下游依赖改接到 replacement node |
 
 #### 5.7 `execution_lineage`
 
@@ -396,13 +396,20 @@ GraphyAgent 的 decomposition、packet construction、recovery、optimizer、pla
 - `resume_from_checkpoint` strict fingerprint 复用。
 - online reflection 和 KG 权重更新。
 
-还应补强：
+本次已补上的图级恢复接口：
 
 - `classify_node_failure`：失败归因。
 - `pause_for_replan`：graph-level failure 暂停当前 GraphRun。
 - `mark_edges_blocked/stale/superseded`：阻断失败输出污染下游。
-- `replan_subgraph/apply_graph_patch`：图级 recovery patch。
+- `replan_subgraph`：生成图级 recovery patch，可选择 `save/apply` 写回当前 workflow。
+- `recover_graph_failure`：全局恢复编排，按 failure_scope 决定节点局部恢复还是图级 pause + replan。
 - skill 中把 node-local recovery 与 graph-level recovery 的升级路径持续保持一致。
+
+已验证：
+
+- 全包 Python 语法编译通过。
+- 模块主接口 import 和新 module-command 注册解析通过。
+- `agent_runtime.recover_graph_failure` 端到端烟测通过，可从 graph-level failure 生成候选 recovery branch。
 
 ## English Version
 
@@ -418,3 +425,13 @@ The main distinction is:
 - Offline optimization: repeated traces become graph-version suggestions, playbooks, and evaluation candidates.
 
 Compared with LangChain/LangGraph, GraphyAgent makes lineage, node memory, audit, reflection, and optimizer first-class module surfaces instead of leaving those policies to application code. Compared with Claude Code, GraphyAgent keeps the strong tool loop but binds tool use to workflow state, artifacts, checkpoints, and replayable node traces.
+
+Current implemented recovery commands:
+
+- `graph_runner.classify_node_failure`
+- `graph_runner.pause_for_replan`
+- `graph_runner.mark_edges_blocked`
+- `task_decompose.replan_subgraph`
+- `agent_runtime.recover_graph_failure`
+
+The current validation pass covers Python compilation, module imports, command registry resolution, and an end-to-end recovery smoke test that creates a candidate recovery branch from a graph-level node failure.

@@ -1,6 +1,7 @@
 """Agent runtime facade and callable tool catalog."""
 
 from .agents import GraphyAgentAgentRuntime, graph_for_node
+from .main import recover_graph_failure
 from .module_registry import list_module_commands, list_modules, resolve_module_command
 from .subagents import AgentDefinition, get_agent_definition, load_agent_definitions
 from .tool_catalog import list_agent_tools, list_module_inventory
@@ -18,5 +19,6 @@ __all__ = [
     "list_modules",
     "load_agent_definitions",
     "list_module_inventory",
+    "recover_graph_failure",
     "resolve_module_command",
 ]

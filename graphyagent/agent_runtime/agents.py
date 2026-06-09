@@ -273,6 +273,71 @@ class GraphyAgentAgentRuntime:
             if not graph_run_id:
                 raise ValueError("list_run_errors requires payload.graph_run_id")
             return graph_run_errors(self.workspace_root, graph_run_id)
+        if command == "classify_node_failure":
+            from ..graph_runner.main import classify_node_failure
+
+            graph_run_id = str(payload.get("graph_run_id") or payload.get("run_id") or "")
+            graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else None
+            if graph is None and (record.get("project_id") or payload.get("project_id")) and (record.get("graph_id") or payload.get("graph_id")):
+                graph = self.project_store.read_graph(
+                    _required_project_id(record, payload),
+                    _required_graph_id(record, payload),
+                )
+            return {
+                "failure_analysis": classify_node_failure(
+                    self.workspace_root,
+                    graph_run_id or None,
+                    node_run_id=payload.get("node_run_id"),
+                    node_id=payload.get("node_id") or record.get("node_id"),
+                    error=payload.get("error"),
+                    graph=graph,
+                )
+            }
+        if command == "pause_for_replan":
+            from ..graph_runner.main import pause_for_replan
+
+            graph_run_id = str(payload.get("graph_run_id") or payload.get("run_id") or "")
+            if not graph_run_id:
+                raise ValueError("pause_for_replan requires payload.graph_run_id")
+            result = pause_for_replan(
+                self.workspace_root,
+                graph_run_id,
+                node_run_id=payload.get("node_run_id"),
+                node_id=payload.get("node_id") or record.get("node_id"),
+                reason=str(payload.get("reason") or ""),
+                failure_analysis=payload.get("failure_analysis") if isinstance(payload.get("failure_analysis"), dict) else None,
+            )
+            return {"pause": result}
+        if command == "mark_edges_blocked":
+            from ..graph_runner.main import mark_edges_blocked
+
+            graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else None
+            project_id = record.get("project_id") or payload.get("project_id")
+            graph_id = record.get("graph_id") or payload.get("graph_id")
+            if graph is None:
+                if not project_id or not graph_id:
+                    raise ValueError("mark_edges_blocked requires payload.graph or project_id/graph_id")
+                graph = self.project_store.read_graph(str(project_id), str(graph_id))
+            failed_node_id = str(payload.get("failed_node_id") or payload.get("node_id") or record.get("node_id") or "")
+            if not failed_node_id:
+                raise ValueError("mark_edges_blocked requires payload.failed_node_id")
+            result = mark_edges_blocked(
+                graph,
+                failed_node_id,
+                replacement_node_id=payload.get("replacement_node_id"),
+                downstream_node_ids=payload.get("downstream_node_ids") if isinstance(payload.get("downstream_node_ids"), list) else None,
+                status=str(payload.get("status") or "blocked_for_replan"),
+                reason=str(payload.get("reason") or ""),
+                rewrite_dependencies=bool(payload.get("rewrite_dependencies")),
+            )
+            if payload.get("save") or payload.get("apply"):
+                if not project_id or not graph_id:
+                    raise ValueError("saving marked graph requires project_id and graph_id")
+                saved = self.project_store.save_graph(str(project_id), str(graph_id), result["graph"])
+                result["save_result"] = saved
+                result["agent_context"] = self.target_context(str(project_id), str(graph_id))
+                result["snapshot"] = self.project_store.snapshot()
+            return result
         if command == "export_trace_dataset":
             from ..data_manager.artifacts import ArtifactStore
             from ..graph_runner.history import export_trace_dataset
@@ -1191,6 +1256,8 @@ class GraphyAgentAgentRuntime:
                     payload.get("node_id") or record.get("node_id"),
                 )
             }
+        if command == "recover_graph_failure":
+            return self._recover_graph_failure_command(record, payload)
         raise ValueError(f"unknown agent_runtime command: {command}")
 
     def _execute_task_decompose_command(
@@ -1217,6 +1284,30 @@ class GraphyAgentAgentRuntime:
             )
             resolved_graph_id = result.get("graph", {}).get("graph_id") or graph_id
             result["agent_context"] = self.target_context(project_id, resolved_graph_id)
+            result["snapshot"] = self.project_store.snapshot()
+            return result
+        if command == "replan_subgraph":
+            from ..task_decompose.main import replan_subgraph
+
+            project_id = _required_project_id(record, payload)
+            graph_id = _required_graph_id(record, payload)
+            failed_node_id = str(payload.get("failed_node_id") or payload.get("node_id") or record.get("node_id") or "")
+            if not failed_node_id:
+                raise ValueError("replan_subgraph requires payload.failed_node_id")
+            result = replan_subgraph(
+                self.workspace_root,
+                project_id,
+                graph_id,
+                failed_node_id,
+                failure_analysis=payload.get("failure_analysis") if isinstance(payload.get("failure_analysis"), dict) else None,
+                graph=payload.get("graph") if isinstance(payload.get("graph"), dict) else None,
+                replacement_strategy=str(payload.get("replacement_strategy") or "repair_then_retry"),
+                recovery_node_names=payload.get("recovery_node_names") if isinstance(payload.get("recovery_node_names"), list) else None,
+                rewrite_downstream_dependencies=bool(payload.get("rewrite_downstream_dependencies", True)),
+                save=bool(payload.get("save")),
+                apply=bool(payload.get("apply")) if "apply" in payload else None,
+            )
+            result["agent_context"] = self.target_context(project_id, graph_id, result.get("patch", {}).get("replacement_node_id"))
             result["snapshot"] = self.project_store.snapshot()
             return result
         if command == "build_decompose_prompt":
@@ -1590,6 +1681,176 @@ class GraphyAgentAgentRuntime:
             "snapshot": self.project_store.snapshot(),
         }
 
+    def _recover_graph_failure_command(
+        self,
+        record: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from ..graph_runner.main import classify_node_failure, pause_for_replan
+        from ..task_decompose.main import replan_subgraph
+        from .skills import recommend_next_modules
+
+        project_id = _required_project_id(record, payload)
+        graph_id = _required_graph_id(record, payload)
+        graph_run_id = str(payload.get("graph_run_id") or payload.get("run_id") or "")
+        graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else None
+        if graph is None:
+            graph = self.project_store.read_graph(project_id, graph_id)
+
+        failure_analysis = payload.get("failure_analysis") if isinstance(payload.get("failure_analysis"), dict) else None
+        if failure_analysis is None:
+            failure_analysis = classify_node_failure(
+                self.workspace_root,
+                graph_run_id or None,
+                node_run_id=payload.get("node_run_id"),
+                node_id=payload.get("node_id") or record.get("node_id"),
+                error=payload.get("error"),
+                graph=graph,
+            )
+        failed_node_id = str(
+            payload.get("failed_node_id")
+            or payload.get("node_id")
+            or record.get("node_id")
+            or failure_analysis.get("node_id")
+            or _parse_failed_node_id(str(failure_analysis.get("error") or payload.get("error") or ""))
+            or ""
+        )
+        failure_scope = str(failure_analysis.get("failure_scope") or "node_local")
+        force_replan = bool(payload.get("force_replan"))
+        apply_replan = bool(payload.get("apply") or payload.get("save"))
+        result: dict[str, Any] = {
+            "schema": "graphyagent.recover_graph_failure.v1",
+            "project_id": project_id,
+            "graph_id": graph_id,
+            "graph_run_id": graph_run_id or None,
+            "node_id": failed_node_id or None,
+            "failure_analysis": failure_analysis,
+            "actions": [],
+        }
+
+        if failure_scope not in {"graph_level", "plan_level"} and not force_replan:
+            plan = recommend_next_modules("graph_runner", event="node_failure", error=str(failure_analysis.get("error") or ""))
+            result.update({
+                "status": "node_local_recovery_recommended",
+                "skill_plan": plan,
+                "next_modules": [
+                    module for module in (plan.get("next_modules") or [])
+                    if module in {"model_routing", "task_decompose", "node_audit"}
+                ],
+                "next_action": failure_analysis.get("next_action") or "retry or decompose the failed node locally",
+            })
+            self.project_store.append_memory_event(
+                project_id,
+                graph_id,
+                {"type": "node" if failed_node_id else "graph", "name": failed_node_id or graph_id},
+                "system",
+                (
+                    "节点失败已分类为局部恢复问题。\n"
+                    f"- 节点：{failed_node_id or '未知'}\n"
+                    f"- 分类：{failure_scope}\n"
+                    f"- 推荐模块：{', '.join(result.get('next_modules') or []) or '无'}"
+                ),
+            )
+            result["agent_context"] = self.target_context(project_id, graph_id, failed_node_id or None)
+            result["snapshot"] = self.project_store.snapshot()
+            return result
+
+        pause = None
+        if graph_run_id:
+            pause = pause_for_replan(
+                self.workspace_root,
+                graph_run_id,
+                node_run_id=payload.get("node_run_id"),
+                node_id=failed_node_id or None,
+                reason=str(payload.get("reason") or failure_analysis.get("error") or "graph-level recovery requested"),
+                failure_analysis=failure_analysis,
+            )
+            result["actions"].append({
+                "module": "graph_runner",
+                "command": "pause_for_replan",
+                "status": pause.get("status"),
+                "result": pause,
+            })
+
+        if not failed_node_id:
+            result.update({
+                "status": "paused_needs_failed_node",
+                "pause": pause,
+                "next_action": "provide failed_node_id before creating a replacement subgraph",
+                "agent_context": self.target_context(project_id, graph_id),
+                "snapshot": self.project_store.snapshot(),
+            })
+            return result
+
+        replan = replan_subgraph(
+            self.workspace_root,
+            project_id,
+            graph_id,
+            failed_node_id,
+            failure_analysis=failure_analysis,
+            graph=graph,
+            replacement_strategy=str(payload.get("replacement_strategy") or "repair_then_retry"),
+            recovery_node_names=payload.get("recovery_node_names") if isinstance(payload.get("recovery_node_names"), list) else None,
+            rewrite_downstream_dependencies=bool(payload.get("rewrite_downstream_dependencies", True)),
+            save=apply_replan,
+        )
+        result["actions"].append({
+            "module": "task_decompose",
+            "command": "replan_subgraph",
+            "status": replan.get("status"),
+            "patch": replan.get("patch"),
+        })
+        if apply_replan:
+            try:
+                from ..graph_saver import save_workflow_version
+
+                version = save_workflow_version(
+                    self.project_store,
+                    project_id,
+                    graph_id,
+                    note=f"graph-level recovery for failed node {failed_node_id}",
+                    source="recovery",
+                )
+                result["actions"].append({
+                    "module": "graph_saver",
+                    "command": "save_workflow",
+                    "status": "success",
+                    "version": version.get("version"),
+                })
+            except Exception as exc:  # noqa: BLE001
+                result["actions"].append({
+                    "module": "graph_saver",
+                    "command": "save_workflow",
+                    "status": "failed",
+                    "error": str(exc),
+                })
+        else:
+            self.project_store.append_memory_event(
+                project_id,
+                graph_id,
+                {"type": "graph", "name": graph_id},
+                "system",
+                (
+                    "图级失败已生成候选恢复分支，尚未写回 workflow。\n"
+                    f"- 失败节点：{failed_node_id}\n"
+                    f"- 替代节点：{(replan.get('patch') or {}).get('replacement_node_id')}"
+                ),
+            )
+
+        result.update({
+            "status": "replanned" if apply_replan else "candidate_replan_ready",
+            "pause": pause,
+            "replan": replan,
+            "next_action": "review candidate_graph and rerun from a checkpoint" if not apply_replan else "rerun graph from the latest checkpoint or current graph",
+            "agent_context": self.target_context(
+                project_id,
+                graph_id,
+                (replan.get("patch") or {}).get("replacement_node_id") or failed_node_id,
+            ),
+            "snapshot": self.project_store.snapshot(),
+        })
+        return result
+
     def _recover_graph_runner_failure(
         self,
         record: dict[str, Any],
@@ -1599,6 +1860,7 @@ class GraphyAgentAgentRuntime:
         *,
         scope: dict[str, str],
     ) -> dict[str, Any]:
+        from ..graph_runner.main import classify_node_failure
         from ..graph_saver import save_workflow_version
         from .skills import recommend_next_modules
 
@@ -1618,6 +1880,47 @@ class GraphyAgentAgentRuntime:
             "skill_plan": plan,
             "actions": [],
         }
+        try:
+            failure_analysis = classify_node_failure(
+                self.workspace_root,
+                getattr(error, "graph_run_id", None),
+                node_id=failed_node_id or None,
+                error=error_text,
+                graph=graph,
+            )
+        except Exception as exc:  # noqa: BLE001
+            failure_analysis = {
+                "schema": "graphyagent.failure_analysis.v1",
+                "status": "classification_failed",
+                "node_id": failed_node_id or None,
+                "failure_scope": "node_local",
+                "error": error_text,
+                "classification_error": str(exc),
+                "created_at": utc_now(),
+            }
+        recovery["failure_analysis"] = failure_analysis
+        if failure_analysis.get("failure_scope") in {"graph_level", "plan_level"} or payload.get("force_graph_replan"):
+            graph_recovery = self._recover_graph_failure_command(
+                record,
+                {
+                    **payload,
+                    "graph": graph,
+                    "graph_run_id": getattr(error, "graph_run_id", None),
+                    "failed_node_id": failed_node_id,
+                    "error": error_text,
+                    "failure_analysis": failure_analysis,
+                    "apply": bool(payload.get("apply_graph_recovery")),
+                    "force_replan": True,
+                },
+            )
+            recovery["actions"].append({
+                "module": "agent_runtime",
+                "command": "recover_graph_failure",
+                "status": graph_recovery.get("status"),
+                "result": graph_recovery,
+            })
+            recovery["status"] = str(graph_recovery.get("status") or "paused_for_replan")
+            return recovery
         self.project_store.append_memory_event(
             project_id,
             graph_id,
