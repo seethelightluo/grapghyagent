@@ -1,0 +1,1323 @@
+"""Module-first command registry for GraphyAgent agents."""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class AgentModuleSpec:
+    name: str
+    package: str
+    main_interface: str
+    description: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "package": self.package,
+            "main_interface": self.main_interface,
+            "description": self.description,
+        }
+
+
+@dataclass(frozen=True)
+class ModuleCommandSpec:
+    module: str
+    command: str
+    target_types: tuple[str, ...]
+    category: str
+    source: str
+    description: str
+    payload: dict[str, Any]
+    legacy_command: str | None = None
+    queue_enabled: bool = True
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.module}.{self.command}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "module": self.module,
+            "command": self.command,
+            "qualified_name": self.qualified_name,
+            "target_types": list(self.target_types),
+            "category": self.category,
+            "source": self.source,
+            "description": self.description,
+            "payload": self.payload,
+            "legacy_command": self.legacy_command,
+            "queue_enabled": self.queue_enabled,
+        }
+
+
+MODULE_CATALOG: tuple[AgentModuleSpec, ...] = (
+    AgentModuleSpec(
+        name="core",
+        package="graphyagent.core",
+        main_interface="graphyagent.core.main",
+        description="Graph config loading, normalization, and schema inspection.",
+    ),
+    AgentModuleSpec(
+        name="graph_runner",
+        package="graphyagent.graph_runner",
+        main_interface="graphyagent.graph_runner.main",
+        description="GraphRun and NodeRun execution with local artifacts and traces.",
+    ),
+    AgentModuleSpec(
+        name="data_manager",
+        package="graphyagent.data_manager",
+        main_interface="graphyagent.data_manager.main",
+        description="Projects, graphs, files, module views, and scoped memory.",
+    ),
+    AgentModuleSpec(
+        name="graph_saver",
+        package="graphyagent.graph_saver",
+        main_interface="graphyagent.graph_saver.main",
+        description="Workflow version snapshots, restore, import, and export.",
+    ),
+    AgentModuleSpec(
+        name="knowledge_graph",
+        package="graphyagent.knowledge_graph",
+        main_interface="graphyagent.knowledge_graph.main",
+        description="Project Knowledge Graph build, retrieval views, and feedback weights.",
+    ),
+    AgentModuleSpec(
+        name="node_memory",
+        package="graphyagent.node_memory",
+        main_interface="graphyagent.node_memory.main",
+        description="Bounded Node Memory Packet assembly for graph node execution.",
+    ),
+    AgentModuleSpec(
+        name="execution_lineage",
+        package="graphyagent.execution_lineage",
+        main_interface="graphyagent.execution_lineage.main",
+        description="Deterministic NodeRun lineage, checkpoint verifier, and replay planning.",
+    ),
+    AgentModuleSpec(
+        name="reflection",
+        package="graphyagent.reflection",
+        main_interface="graphyagent.reflection.main",
+        description="Online node reflection labels and knowledge feedback updates.",
+    ),
+    AgentModuleSpec(
+        name="graph_optimizer",
+        package="graphyagent.graph_optimizer",
+        main_interface="graphyagent.graph_optimizer.main",
+        description="Offline graph-run analysis, edge utilities, subgraph mining, and version suggestions.",
+    ),
+    AgentModuleSpec(
+        name="evaluation",
+        package="graphyagent.evaluation",
+        main_interface="graphyagent.evaluation.main",
+        description="Graph version metrics, regression comparison, and promotion reports.",
+    ),
+    AgentModuleSpec(
+        name="playbooks",
+        package="graphyagent.playbooks",
+        main_interface="graphyagent.playbooks.main",
+        description="Reusable subgraph motif serialization and matching.",
+    ),
+    AgentModuleSpec(
+        name="data_audit",
+        package="graphyagent.data_audit",
+        main_interface="graphyagent.data_audit.main",
+        description="Synthetic-data and data-quality audit for CSV/JSON/JSONL datasets.",
+    ),
+    AgentModuleSpec(
+        name="model_routing",
+        package="graphyagent.model_routing",
+        main_interface="graphyagent.model_routing.main",
+        description=".env-backed simple/complex model profiles and LLM calls.",
+    ),
+    AgentModuleSpec(
+        name="agent_runtime",
+        package="graphyagent.agent_runtime",
+        main_interface="graphyagent.agent_runtime.main",
+        description="Graph/node agent command dispatcher, tool catalog, and worker profiles.",
+    ),
+    AgentModuleSpec(
+        name="front_bridge",
+        package="graphyagent.front_bridge",
+        main_interface="graphyagent.front_bridge.main",
+        description="CLI/Web/API bridge and persistent command queue.",
+    ),
+    AgentModuleSpec(
+        name="node_audit",
+        package="graphyagent.node_audit",
+        main_interface="graphyagent.node_audit.main",
+        description="Automatic node necessity and dependency audit.",
+    ),
+    AgentModuleSpec(
+        name="task_decompose",
+        package="graphyagent.task_decompose",
+        main_interface="graphyagent.task_decompose.main",
+        description="Node-to-subgraph decomposition.",
+    ),
+    AgentModuleSpec(
+        name="memory",
+        package="graphyagent.memory",
+        main_interface="graphyagent.memory.context",
+        description="Relevant long-term project/graph/node memory lookup for prompt injection.",
+    ),
+    AgentModuleSpec(
+        name="multi_agent",
+        package="graphyagent.multi_agent",
+        main_interface="graphyagent.multi_agent.tools",
+        description="Sub-agent task descriptors and parallel node-agent planning.",
+    ),
+    AgentModuleSpec(
+        name="research",
+        package="graphyagent.research",
+        main_interface="graphyagent.research.synthesizer",
+        description="Deterministic citation and report rendering for graph outputs.",
+    ),
+)
+
+
+MODULE_COMMAND_CATALOG: tuple[ModuleCommandSpec, ...] = (
+    ModuleCommandSpec(
+        module="core",
+        command="load_graph_config",
+        target_types=("core", "graph"),
+        category="config",
+        source="graphyagent.core.main.load",
+        description="Load and normalize a graph config from a JSON/YAML path.",
+        payload={"config_path": "required graph config path"},
+    ),
+    ModuleCommandSpec(
+        module="core",
+        command="inspect_graph_config",
+        target_types=("core", "graph"),
+        category="config",
+        source="graphyagent.front_bridge.service.inspect_graph_config",
+        description="Inspect a graph config with route previews.",
+        payload={"config_path": "required graph config path"},
+    ),
+    ModuleCommandSpec(
+        module="core",
+        command="graph_schema",
+        target_types=("core",),
+        category="config",
+        source="graphyagent.core.main.schema",
+        description="Return the GraphConfig JSON schema.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="run_graph",
+        target_types=("graph",),
+        category="execution",
+        source="graphyagent.graph_runner",
+        description="Run a full graph and persist GraphRun, NodeRun, artifacts, and memory.",
+        payload={"graph": "optional graph snapshot"},
+        legacy_command="run_graph",
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="run_node",
+        target_types=("node",),
+        category="execution",
+        source="graphyagent.graph_runner",
+        description="Run one node with its upstream dependencies as a scoped graph.",
+        payload={"graph": "optional graph snapshot", "node_id": "optional node id override"},
+        legacy_command="run_node",
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="list_runs",
+        target_types=("graph", "run"),
+        category="execution",
+        source="graphyagent.front_bridge.service.list_graph_runs",
+        description="List recorded graph runs in the workspace.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="show_run",
+        target_types=("run",),
+        category="execution",
+        source="graphyagent.front_bridge.service.read_graph_run",
+        description="Read a GraphRun record, optionally including NodeRun details.",
+        payload={"graph_run_id": "required run id", "node_runs": "optional bool"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="show_run_manifest",
+        target_types=("run", "graph"),
+        category="experiment_tracking",
+        source="graphyagent.graph_runner.history.graph_run_manifest",
+        description="Return the GraphRun experiment manifest with config hash, experiment settings, router, providers, and output counts.",
+        payload={"graph_run_id": "required run id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="timeline",
+        target_types=("run", "graph"),
+        category="execution_monitoring",
+        source="graphyagent.graph_runner.history.graph_run_timeline",
+        description="Return a timeline of graph and node run events for a GraphRun.",
+        payload={"graph_run_id": "required run id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="list_node_runs",
+        target_types=("run", "node"),
+        category="execution",
+        source="graphyagent.front_bridge.service.read_node_runs",
+        description="List NodeRun JSONL details for a GraphRun.",
+        payload={"graph_run_id": "required run id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="show_node_run",
+        target_types=("run", "node"),
+        category="execution_monitoring",
+        source="graphyagent.graph_runner.history.read_node_run",
+        description="Read one NodeRun by node_run_id or the latest run for node_id.",
+        payload={"graph_run_id": "required run id", "node_run_id": "optional node run id", "node_id": "optional node id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="list_run_outputs",
+        target_types=("run", "graph", "node"),
+        category="artifact_view",
+        source="graphyagent.graph_runner.history.graph_run_outputs",
+        description="List GraphRun graphoutput files and node output artifacts.",
+        payload={"graph_run_id": "required run id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="list_run_errors",
+        target_types=("run", "graph", "node"),
+        category="execution_monitoring",
+        source="graphyagent.graph_runner.history.graph_run_errors",
+        description="List graph/node errors and available stdout/stderr log paths for a GraphRun.",
+        payload={"graph_run_id": "required run id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="export_trace_dataset",
+        target_types=("run", "graph"),
+        category="trace_export",
+        source="graphyagent.graph_runner.history.export_trace_dataset",
+        description="Export GraphRun/NodeRun traces as a JSONL dataset for SFT/RL review and training.",
+        payload={
+            "graph_run_id": "required run id",
+            "output_dir": "optional export directory",
+            "max_chars_per_file": "optional text excerpt size",
+        },
+    ),
+    ModuleCommandSpec(
+        module="knowledge_graph",
+        command="build_for_project",
+        target_types=("project", "graph", "file", "data"),
+        category="knowledge_graph",
+        source="graphyagent.knowledge_graph.build_for_project",
+        description="Build or refresh the project Knowledge Graph from files, graph structure, and metadata.",
+        payload={"project_id": "optional override; defaults to command project", "graph": "optional graph snapshot"},
+    ),
+    ModuleCommandSpec(
+        module="knowledge_graph",
+        command="refresh_from_run",
+        target_types=("run", "graph", "project"),
+        category="knowledge_graph",
+        source="graphyagent.knowledge_graph.refresh_from_run",
+        description="Index a completed GraphRun and its NodeRun traces into the Knowledge Graph.",
+        payload={"graph_run_id": "required run id", "project_id": "optional project id"},
+    ),
+    ModuleCommandSpec(
+        module="knowledge_graph",
+        command="build_view_for_node",
+        target_types=("node", "graph", "project"),
+        category="context",
+        source="graphyagent.knowledge_graph.build_view_for_node",
+        description="Build a node-conditioned Knowledge View split into background, evidence, and quarantine candidates.",
+        payload={"node_id": "required node id", "graph_id": "optional graph id", "query": "optional retrieval query"},
+    ),
+    ModuleCommandSpec(
+        module="knowledge_graph",
+        command="update_weights_from_feedback",
+        target_types=("run", "node", "graph"),
+        category="reflection",
+        source="graphyagent.knowledge_graph.update_weights_from_feedback",
+        description="Apply online reflection labels to node-conditioned knowledge and edge weights.",
+        payload={"node_run_id": "required node run id", "graph_run_id": "optional run id"},
+    ),
+    ModuleCommandSpec(
+        module="knowledge_graph",
+        command="decay_noisy_items",
+        target_types=("project", "graph"),
+        category="knowledge_graph",
+        source="graphyagent.knowledge_graph.decay_noisy_items",
+        description="Decay repeatedly unused or risky knowledge and edge weights without mutating workflow structure.",
+        payload={"project_id": "optional project id", "decay": "optional decay amount"},
+    ),
+    ModuleCommandSpec(
+        module="node_memory",
+        command="prepare_node_context",
+        target_types=("node", "graph", "project"),
+        category="context",
+        source="graphyagent.node_memory.prepare_node_context",
+        description="Assemble a bounded Node Memory Packet for a node.",
+        payload={"node_id": "required node id", "graph": "optional graph snapshot"},
+    ),
+    ModuleCommandSpec(
+        module="node_memory",
+        command="summarize_context_for_model",
+        target_types=("node", "graph"),
+        category="context",
+        source="graphyagent.node_memory.summarize_context_for_model",
+        description="Render a Node Memory Packet into compact model-readable context.",
+        payload={"packet": "required node memory packet"},
+    ),
+    ModuleCommandSpec(
+        module="node_memory",
+        command="record_context_usage",
+        target_types=("node", "run", "graph"),
+        category="trace",
+        source="graphyagent.node_memory.record_context_usage",
+        description="Log supplied context usage for later optimizer analysis.",
+        payload={"usage": "required usage object"},
+    ),
+    ModuleCommandSpec(
+        module="node_memory",
+        command="update_gap_state",
+        target_types=("node", "graph", "project"),
+        category="context",
+        source="graphyagent.node_memory.update_gap_state",
+        description="Persist evidence gap state for a node.",
+        payload={"node_id": "required node id", "gaps": "required list of gap strings"},
+    ),
+    ModuleCommandSpec(
+        module="execution_lineage",
+        command="verify_node_inputs",
+        target_types=("node", "run", "graph"),
+        category="lineage",
+        source="graphyagent.execution_lineage.verify_node_inputs",
+        description="Verify node input artifacts and produce a deterministic input fingerprint.",
+        payload={"node_id": "required node id", "graph": "optional graph snapshot", "state": "optional GraphState"},
+    ),
+    ModuleCommandSpec(
+        module="execution_lineage",
+        command="record_node_lineage",
+        target_types=("node", "run"),
+        category="lineage",
+        source="graphyagent.execution_lineage.record_node_lineage",
+        description="Persist a NodeRun execution lineage record.",
+        payload={"graph_run_id": "required run id", "node_run": "required node run object"},
+    ),
+    ModuleCommandSpec(
+        module="execution_lineage",
+        command="plan_replay_from_checkpoint",
+        target_types=("run", "graph"),
+        category="checkpoint",
+        source="graphyagent.execution_lineage.plan_replay_from_checkpoint",
+        description="Compare a checkpoint with the current graph and return reusable and dirty nodes.",
+        payload={"graph": "required graph snapshot", "checkpoint": "required checkpoint object", "source_graph_run_id": "optional source run id", "current_state": "optional refreshed state"},
+    ),
+    ModuleCommandSpec(
+        module="execution_lineage",
+        command="list_dirty_nodes",
+        target_types=("run", "graph"),
+        category="checkpoint",
+        source="graphyagent.execution_lineage.list_dirty_nodes",
+        description="List dirty nodes from a replay plan or blocked lineage records.",
+        payload={"graph_run_id": "optional run id", "graph": "optional graph snapshot", "checkpoint": "optional checkpoint object", "current_state": "optional refreshed state"},
+    ),
+    ModuleCommandSpec(
+        module="reflection",
+        command="run_online_reflection",
+        target_types=("run", "node"),
+        category="reflection",
+        source="graphyagent.reflection.run_online_reflection",
+        description="Generate node-level structured reflection labels without mutating graph structure.",
+        payload={"node_run_id": "required node run id", "graph_run_id": "optional run id"},
+    ),
+    ModuleCommandSpec(
+        module="reflection",
+        command="apply_feedback_updates",
+        target_types=("run", "node", "graph"),
+        category="reflection",
+        source="graphyagent.reflection.apply_feedback_updates",
+        description="Apply online reflection labels to Knowledge Graph and edge weights.",
+        payload={"node_run_id": "required node run id", "graph_run_id": "optional run id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_optimizer",
+        command="analyze_graph_runs",
+        target_types=("graph", "run"),
+        category="offline_optimization",
+        source="graphyagent.graph_optimizer.analyze_graph_runs",
+        description="Analyze historical GraphRuns for edge utilities, subgraph candidates, and version suggestions.",
+        payload={"graph_id": "required graph id", "graph_run_ids": "optional list"},
+    ),
+    ModuleCommandSpec(
+        module="graph_optimizer",
+        command="compute_edge_utilities",
+        target_types=("graph", "run"),
+        category="offline_optimization",
+        source="graphyagent.graph_optimizer.compute_edge_utilities",
+        description="Compute edge utility scores from optimizer traces.",
+        payload={"graph": "required graph snapshot"},
+    ),
+    ModuleCommandSpec(
+        module="graph_optimizer",
+        command="mine_reusable_subgraphs",
+        target_types=("graph", "run"),
+        category="offline_optimization",
+        source="graphyagent.graph_optimizer.mine_reusable_subgraphs",
+        description="Mine repeated successful node sequences for playbook promotion.",
+        payload={"graph": "required graph snapshot"},
+    ),
+    ModuleCommandSpec(
+        module="graph_optimizer",
+        command="suggest_structure_changes",
+        target_types=("graph", "run"),
+        category="offline_optimization",
+        source="graphyagent.graph_optimizer.suggest_structure_changes",
+        description="Turn edge utilities and subgraph candidates into versioned structure suggestions.",
+        payload={"edge_utilities": "required list", "subgraph_candidates": "optional list"},
+    ),
+    ModuleCommandSpec(
+        module="graph_optimizer",
+        command="materialize_new_graph_version",
+        target_types=("graph",),
+        category="versioning",
+        source="graphyagent.graph_optimizer.materialize_new_graph_version",
+        description="Materialize optimizer suggestions into a new graph version without in-place hidden mutation.",
+        payload={"graph": "required graph snapshot", "suggestions": "required list", "persist": "optional bool"},
+    ),
+    ModuleCommandSpec(
+        module="evaluation",
+        command="compare_graph_versions",
+        target_types=("graph",),
+        category="evaluation",
+        source="graphyagent.evaluation.compare_graph_versions",
+        description="Compare base and candidate graph versions before promotion.",
+        payload={"base_graph": "required graph", "candidate_graph": "required graph"},
+    ),
+    ModuleCommandSpec(
+        module="evaluation",
+        command="graph_metrics",
+        target_types=("graph",),
+        category="evaluation",
+        source="graphyagent.evaluation.graph_metrics",
+        description="Compute graph-native structure metrics.",
+        payload={"graph": "required graph snapshot"},
+    ),
+    ModuleCommandSpec(
+        module="evaluation",
+        command="render_evaluation_report",
+        target_types=("graph", "run"),
+        category="evaluation",
+        source="graphyagent.evaluation.render_evaluation_report",
+        description="Render a graph-version comparison report.",
+        payload={"comparison": "required comparison object"},
+    ),
+    ModuleCommandSpec(
+        module="evaluation",
+        command="rank_graph_versions",
+        target_types=("graph", "run"),
+        category="evaluation",
+        source="graphyagent.evaluation.rank_graph_versions",
+        description="Rank candidate graph versions before promotion.",
+        payload={"entries": "required list of comparison, graph, or metrics entries"},
+    ),
+    ModuleCommandSpec(
+        module="playbooks",
+        command="serialize_subgraph",
+        target_types=("graph",),
+        category="playbook",
+        source="graphyagent.playbooks.serialize_subgraph",
+        description="Serialize a selected subgraph into a playbook record.",
+        payload={"graph": "required graph snapshot", "node_ids": "required node ids"},
+    ),
+    ModuleCommandSpec(
+        module="playbooks",
+        command="promote_reusable_subgraphs",
+        target_types=("graph", "run"),
+        category="playbook",
+        source="graphyagent.playbooks.promote_reusable_subgraphs",
+        description="Promote optimizer-mined repeated successful subgraphs into playbooks; rejects single-run candidates.",
+        payload={"graph": "required graph snapshot", "subgraph_candidates": "required optimizer candidates"},
+    ),
+    ModuleCommandSpec(
+        module="playbooks",
+        command="match_playbooks",
+        target_types=("project", "graph"),
+        category="playbook",
+        source="graphyagent.playbooks.match_playbooks",
+        description="Match the current task or graph against stored playbooks.",
+        payload={"task": "optional task text", "graph": "optional graph snapshot"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="list_graph_outputs",
+        target_types=("run", "graph"),
+        category="artifact_view",
+        source="graphyagent.graph_runner.graphoutput",
+        description="List files exposed in a GraphRun graphoutput directory.",
+        payload={"graph_run_id": "required run id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="list_checkpoints",
+        target_types=("run", "graph"),
+        category="checkpoint",
+        source="graphyagent.graph_runner.checkpoints",
+        description="List GraphState checkpoints written after node execution.",
+        payload={"graph_run_id": "required run id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="read_checkpoint",
+        target_types=("run", "graph"),
+        category="checkpoint",
+        source="graphyagent.graph_saver.read_graph_run_checkpoint",
+        description="Read one GraphState checkpoint by checkpoint id or checkpoint filename.",
+        payload={"graph_run_id": "required run id", "checkpoint_id": "required checkpoint id"},
+    ),
+    ModuleCommandSpec(
+        module="graph_runner",
+        command="resume_from_checkpoint",
+        target_types=("run", "graph"),
+        category="checkpoint",
+        source="graphyagent.graph_runner.main.resume_from_checkpoint",
+        description="Resume the current graph from a GraphRun checkpoint, skipping nodes that already succeeded in checkpoint state.",
+        payload={
+            "graph_run_id": "required source run id",
+            "checkpoint_id": "required checkpoint id",
+            "graph": "optional graph snapshot; defaults to current project graph",
+            "reuse_policy": "optional; defaults to strict_fingerprint",
+        },
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="create_project",
+        target_types=("project",),
+        category="workspace",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Create a project workspace for graphs, files, modules, and memory.",
+        payload={"name": "required project name"},
+        legacy_command="create_project",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="select_project",
+        target_types=("project",),
+        category="workspace",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Switch the active project.",
+        payload={"project_id": "required project id when record.project_id is absent"},
+        legacy_command="select_project",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="delete_project",
+        target_types=("project",),
+        category="workspace",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Delete a project and its managed workspace state.",
+        payload={"project_id": "required project id when record.project_id is absent"},
+        legacy_command="delete_project",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="create_graph",
+        target_types=("project", "graph"),
+        category="graph_management",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Create a graph in a project and refresh automatic node audits.",
+        payload={"name": "required graph name", "graph": "optional graph snapshot"},
+        legacy_command="create_graph",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="select_graph",
+        target_types=("graph",),
+        category="graph_management",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Switch the active graph in a project.",
+        payload={"graph_id": "required graph id when record.graph_id is absent"},
+        legacy_command="select_graph",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="delete_graph",
+        target_types=("graph",),
+        category="graph_management",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Delete a graph and its graph-scoped files/modules/memory.",
+        payload={"graph_id": "required graph id when record.graph_id is absent"},
+        legacy_command="delete_graph",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="save_graph",
+        target_types=("graph",),
+        category="graph_management",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Persist a graph snapshot and refresh file/module/audit synchronization.",
+        payload={"graph": "required graph snapshot"},
+        legacy_command="save_graph",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="graph_folder_info",
+        target_types=("graph",),
+        category="graph_management",
+        source="graphyagent.data_manager.ProjectStore.graph_folder_info",
+        description="Resolve the managed folder that stores the current graph JSON, files, and memory.",
+        payload={"graph_id": "required graph id when record.graph_id is absent"},
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="snapshot",
+        target_types=("project", "graph"),
+        category="workspace",
+        source="graphyagent.data_manager.main.snapshot",
+        description="Return the current project/graph/file/memory snapshot.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="register_artifact",
+        target_types=("data", "file", "project", "graph", "node"),
+        category="artifact_store",
+        source="graphyagent.data_manager.ArtifactStore.register_file",
+        description="Register a file in the content-addressed artifact store without duplicating existing content.",
+        payload={"path": "required file path", "type": "optional artifact type", "name": "optional display name"},
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="list_artifacts",
+        target_types=("data", "file", "project", "graph"),
+        category="artifact_store",
+        source="graphyagent.data_manager.ArtifactStore",
+        description="List content-addressed artifacts currently stored in the workspace.",
+        payload={"limit": "optional maximum count"},
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="describe_artifact",
+        target_types=("data", "file"),
+        category="artifact_store",
+        source="graphyagent.data_manager.ArtifactStore",
+        description="Describe one content-addressed artifact by sha256 artifact id.",
+        payload={"artifact_id": "required artifact id"},
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="link_artifact_to_file_tree",
+        target_types=("project", "graph", "node", "file", "data"),
+        category="artifact_store",
+        source="graphyagent.data_manager.ProjectStore.link_artifact_to_file_tree",
+        description="Attach an existing artifact to the managed project/graph/node file tree without duplicating content.",
+        payload={
+            "artifact_id": "required artifact id",
+            "target_scope": "project_unclassified | graph_unclassified | node",
+            "graph_id": "required for graph/node targets",
+            "node_id": "required for node target",
+            "name": "optional visible file name",
+        },
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="sync_artifact_index",
+        target_types=("project", "graph", "file", "data"),
+        category="artifact_store",
+        source="graphyagent.data_manager.ProjectStore.sync_artifact_index",
+        description="Register managed files into the content-addressed artifact index and write artifact refs back to file records.",
+        payload={"graph_id": "optional graph id filter"},
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="list_managed_files",
+        target_types=("project", "graph", "node", "file"),
+        category="file_management",
+        source="graphyagent.data_manager.ProjectStore.virtual_tree",
+        description="List project/graph/node managed files as the UI virtual tree sees them.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="update_node_task",
+        target_types=("node",),
+        category="task_graph",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Update a node task name/description and write the change to node memory.",
+        payload={"name": "optional new task name/id", "description": "optional task description"},
+        legacy_command="update_node_task",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="import_file",
+        target_types=("project", "graph", "node"),
+        category="file_management",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Import a local or uploaded file into project/graph/node file management.",
+        payload={
+            "scope": "project_unclassified | graph_unclassified | node",
+            "path": "optional local path",
+            "contentBase64": "optional browser upload",
+            "name": "optional file name",
+        },
+        legacy_command="import_file",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="move_file",
+        target_types=("project", "graph", "node"),
+        category="file_management",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Move a managed file between project, graph, and node scopes.",
+        payload={
+            "file_id": "required file id",
+            "target_scope": "project_unclassified | graph_unclassified | node",
+            "node_id": "required when target_scope=node",
+        },
+        legacy_command="move_file",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="delete_file",
+        target_types=("project", "graph", "node"),
+        category="file_management",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Remove a managed file and unsync node inputs/evidence pointers.",
+        payload={"file_id": "required file id"},
+        legacy_command="delete_file",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="write_memory",
+        target_types=("project", "graph", "node", "file"),
+        category="memory",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Append structured memory to a project, graph, node, or file.",
+        payload={"text": "required memory text", "role": "optional role, default user"},
+        legacy_command="write_memory",
+    ),
+    ModuleCommandSpec(
+        module="data_manager",
+        command="read_memory",
+        target_types=("project", "graph", "node", "file"),
+        category="memory",
+        source="graphyagent.data_manager.ProjectStore",
+        description="Read project, graph, node, or file memory without invoking an LLM.",
+        payload={"target": "optional explicit target descriptor"},
+        legacy_command="read_memory",
+    ),
+    ModuleCommandSpec(
+        module="graph_saver",
+        command="save_workflow",
+        target_types=("graph",),
+        category="workflow_persistence",
+        source="graphyagent.graph_saver.main.save",
+        description="Persist the current workflow as a versioned graph snapshot.",
+        payload={"graph": "optional graph snapshot", "note": "optional version note"},
+    ),
+    ModuleCommandSpec(
+        module="graph_saver",
+        command="list_versions",
+        target_types=("graph",),
+        category="workflow_persistence",
+        source="graphyagent.graph_saver.main.versions",
+        description="List saved workflow versions for a graph.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="graph_saver",
+        command="restore_version",
+        target_types=("graph",),
+        category="workflow_persistence",
+        source="graphyagent.graph_saver.main.restore",
+        description="Restore a graph workflow from a saved version snapshot.",
+        payload={"version_id": "required version id such as v0001"},
+    ),
+    ModuleCommandSpec(
+        module="graph_saver",
+        command="export_workflow",
+        target_types=("graph",),
+        category="workflow_persistence",
+        source="graphyagent.graph_saver.main.export",
+        description="Export the current graph workflow to a portable JSON file.",
+        payload={"output_path": "optional output path", "include_versions": "optional bool"},
+    ),
+    ModuleCommandSpec(
+        module="graph_saver",
+        command="import_workflow",
+        target_types=("project", "graph"),
+        category="workflow_persistence",
+        source="graphyagent.graph_saver.main.import_graph",
+        description="Import a portable workflow JSON file as a new graph and initial version.",
+        payload={"path": "required workflow JSON path", "name": "optional imported graph name"},
+    ),
+    ModuleCommandSpec(
+        module="graph_saver",
+        command="merge_workflow",
+        target_types=("graph",),
+        category="workflow_persistence",
+        source="graphyagent.graph_saver.main.merge",
+        description="Merge another graph workflow into the current graph with safe node/artifact prefixing.",
+        payload={
+            "source_graph": "optional source graph object",
+            "source_graph_id": "optional graph id in the same project",
+            "path": "optional workflow JSON path",
+            "prefix": "optional node/artifact id prefix",
+            "attach_to": "optional list of existing node ids for source roots to depend on",
+            "output_policy": "append | preserve | replace",
+        },
+    ),
+    ModuleCommandSpec(
+        module="graph_saver",
+        command="fork_from_checkpoint",
+        target_types=("graph", "run"),
+        category="workflow_persistence",
+        source="graphyagent.graph_saver.main.fork_from_checkpoint",
+        description="Create a new graph workflow from a GraphRun checkpoint state.",
+        payload={
+            "graph_run_id": "required run id",
+            "checkpoint_id": "required checkpoint id",
+            "name": "optional new graph name",
+            "note": "optional version note",
+        },
+    ),
+    ModuleCommandSpec(
+        module="data_audit",
+        command="audit_dataset",
+        target_types=("data", "file", "node"),
+        category="data_audit",
+        source="graphyagent.data_audit.main.run",
+        description="Run evidence-first data-quality, synthetic/manipulation-risk, task-fit, and review-queue audit on CSV/JSON/JSONL data.",
+        payload={
+            "dataset": "required dataset path",
+            "metadata": "optional metadata path with schema, task_spec, target_distribution, provenance, and validation_context",
+            "output_dir": "optional output directory for audit report, evidence, review queue, risk summary, and LLM summary input",
+        },
+        legacy_command="audit_dataset",
+    ),
+    ModuleCommandSpec(
+        module="model_routing",
+        command="load_environment",
+        target_types=("settings",),
+        category="settings",
+        source="graphyagent.model_routing.main.load_environment",
+        description="Load .env settings into the current process environment.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="model_routing",
+        command="read_settings",
+        target_types=("settings",),
+        category="settings",
+        source="graphyagent.model_routing.main.settings",
+        description="Read masked API/profile routing settings.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="model_routing",
+        command="update_settings",
+        target_types=("settings",),
+        category="settings",
+        source="graphyagent.model_routing.main.update",
+        description="Update .env-backed simple/complex API profiles.",
+        payload={"profiles": "optional profile updates", "routing": "optional routing updates"},
+    ),
+    ModuleCommandSpec(
+        module="model_routing",
+        command="chat_completion",
+        target_types=("project", "graph", "node", "settings"),
+        category="llm",
+        source="graphyagent.model_routing.main.chat",
+        description="Call the configured LLM profile with optional fallback profiles.",
+        payload={
+            "prompt": "required prompt",
+            "profile": "simple | complex",
+            "fallback_profiles": "optional list such as ['complex']",
+        },
+    ),
+    ModuleCommandSpec(
+        module="model_routing",
+        command="route_node",
+        target_types=("graph", "node", "settings"),
+        category="routing",
+        source="graphyagent.model_routing.route_model",
+        description="Preview provider/model routing for a node using graph and node context.",
+        payload={"graph": "required graph snapshot", "node_id": "required node id"},
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="list_modules",
+        target_types=("project", "graph", "node", "core"),
+        category="catalog",
+        source="graphyagent.agent_runtime.module_registry.list_modules",
+        description="List root GraphyAgent modules before choosing a command.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="list_module_commands",
+        target_types=("project", "graph", "node", "core", "settings", "data", "file", "run"),
+        category="catalog",
+        source="graphyagent.agent_runtime.module_registry.list_module_commands",
+        description="List commands inside one module, optionally filtered by target type.",
+        payload={"module": "optional module", "target": "optional target type"},
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="list_tools",
+        target_types=("project", "graph", "node"),
+        category="catalog",
+        source="graphyagent.agent_runtime.main.tools",
+        description="List legacy-compatible flat agent tools for a target.",
+        payload={"target": "optional target type"},
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="list_common_tools",
+        target_types=("project", "graph", "node", "file", "data"),
+        category="catalog",
+        source="graphyagent.agent_runtime.tool_registry.get_tool_schemas",
+        description="List registered backend common tools for file reading, search, and context building.",
+        payload={"target": "optional target type"},
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="execute_tool",
+        target_types=("project", "graph", "node", "file", "data"),
+        category="tool_execution",
+        source="graphyagent.agent_runtime.tool_registry.execute_tool",
+        description="Execute one registered backend tool with JSON arguments.",
+        payload={
+            "tool": "required tool name such as ReadFile, ReadTable, Glob, Grep",
+            "arguments": "required tool arguments object",
+        },
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="list_module_skills",
+        target_types=("project", "graph", "node", "core"),
+        category="skill",
+        source="graphyagent.agent_runtime.skills.list_module_skills",
+        description="Read module-local skill files used for agent dispatch recommendations.",
+        payload={"module": "optional module"},
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="recommend_next_modules",
+        target_types=("project", "graph", "node", "core"),
+        category="skill",
+        source="graphyagent.agent_runtime.skills.recommend_next_modules",
+        description="Use module-local skills to recommend the next module after an event or failure.",
+        payload={"module": "required module", "event": "optional event", "error": "optional error"},
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="list_subagent_types",
+        target_types=("project", "graph", "node"),
+        category="subagent",
+        source="graphyagent.agent_runtime.main.subagents",
+        description="List graph/node worker profiles available to the runtime.",
+        payload={},
+        legacy_command="list_subagent_types",
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="target_context",
+        target_types=("project", "graph", "node"),
+        category="context",
+        source="graphyagent.agent_runtime.GraphyAgentAgentRuntime.target_context",
+        description="Return the current project/graph/node context visible to an agent.",
+        payload={},
+    ),
+    ModuleCommandSpec(
+        module="agent_runtime",
+        command="chat_graph",
+        target_types=("project", "graph", "node", "file"),
+        category="memory_chat",
+        source="graphyagent.agent_runtime.GraphyAgentAgentRuntime",
+        description="Send a natural-language memory or graph-edit prompt to the graph agent.",
+        payload={"prompt": "required user prompt"},
+        legacy_command="chat_graph",
+    ),
+    ModuleCommandSpec(
+        module="memory",
+        command="find_relevant_memories",
+        target_types=("project", "graph", "node", "file"),
+        category="memory",
+        source="graphyagent.memory.context.find_relevant_memories",
+        description="Find relevant project/graph/node memories for a query, including input and output node context.",
+        payload={"query": "required search query", "max_results": "optional result count"},
+    ),
+    ModuleCommandSpec(
+        module="memory",
+        command="get_memory_context",
+        target_types=("project", "graph", "node", "file"),
+        category="memory",
+        source="graphyagent.memory.context.get_memory_context",
+        description="Render relevant long-term memory context for prompt injection.",
+        payload={"query": "optional query", "node_id": "optional node id", "max_results": "optional result count"},
+    ),
+    ModuleCommandSpec(
+        module="multi_agent",
+        command="create_agent_task",
+        target_types=("project", "graph", "node"),
+        category="multi_agent",
+        source="graphyagent.multi_agent.tools._agent_tool",
+        description="Create a GraphyAgent sub-agent task descriptor for queue-backed execution planning.",
+        payload={"prompt": "required sub-agent prompt", "subagent_type": "optional agent profile", "node_id": "optional node id"},
+    ),
+    ModuleCommandSpec(
+        module="multi_agent",
+        command="plan_parallel_node_agents",
+        target_types=("graph",),
+        category="multi_agent",
+        source="graphyagent.multi_agent.tools.plan_parallel_node_agents",
+        description="Recommend node-runner sub-agent tasks for parallel DAG layers.",
+        payload={"graph": "optional graph snapshot; defaults to current graph"},
+    ),
+    ModuleCommandSpec(
+        module="research",
+        command="render_citations",
+        target_types=("project", "graph", "node", "file", "data"),
+        category="report_rendering",
+        source="graphyagent.research.synthesizer.render_citations",
+        description="Render a numbered citation list from a brief/results object.",
+        payload={"brief": "optional brief object", "results": "optional result list"},
+    ),
+    ModuleCommandSpec(
+        module="research",
+        command="render_without_llm",
+        target_types=("project", "graph", "node", "file", "data"),
+        category="report_rendering",
+        source="graphyagent.research.synthesizer.render_without_llm",
+        description="Render a deterministic Markdown report without calling an LLM.",
+        payload={"brief": "required brief object or outputs object"},
+    ),
+    ModuleCommandSpec(
+        module="research",
+        command="render_report",
+        target_types=("project", "graph", "node", "file", "data"),
+        category="report_rendering",
+        source="graphyagent.research.synthesizer.render_report_files",
+        description="Write Markdown/HTML report files into the workspace and return preview_url for browser preview.",
+        payload={"brief": "optional brief object", "outputs": "optional outputs object", "topic": "optional report title"},
+    ),
+    ModuleCommandSpec(
+        module="front_bridge",
+        command="serve",
+        target_types=("bridge",),
+        category="web",
+        source="graphyagent.front_bridge.main.serve",
+        description="Start the local Web/API bridge.",
+        payload={"host": "optional host", "port": "optional port", "workspace": "optional workspace"},
+        queue_enabled=False,
+    ),
+    ModuleCommandSpec(
+        module="front_bridge",
+        command="submit_agent_command",
+        target_types=("bridge",),
+        category="queue",
+        source="graphyagent.front_bridge.AgentCommandStore.submit_command",
+        description="Persist an agent command record for immediate or worker execution.",
+        payload={"module": "optional module", "command": "required command", "payload": "optional object"},
+        queue_enabled=False,
+    ),
+    ModuleCommandSpec(
+        module="front_bridge",
+        command="process_agent_command",
+        target_types=("bridge",),
+        category="queue",
+        source="graphyagent.front_bridge.AgentCommandStore.process_command",
+        description="Process one queued agent command.",
+        payload={"command_id": "required command id"},
+        queue_enabled=False,
+    ),
+    ModuleCommandSpec(
+        module="front_bridge",
+        command="list_agent_commands",
+        target_types=("bridge",),
+        category="queue",
+        source="graphyagent.front_bridge.AgentCommandStore.list_commands",
+        description="List recent persisted agent commands.",
+        payload={"limit": "optional maximum count"},
+        queue_enabled=False,
+    ),
+    ModuleCommandSpec(
+        module="node_audit",
+        command="audit_node_necessity",
+        target_types=("node",),
+        category="task_graph",
+        source="graphyagent.node_audit.main.run",
+        description="Audit whether a node is required, risky, or removable.",
+        payload={},
+        legacy_command="audit_node_necessity",
+    ),
+    ModuleCommandSpec(
+        module="node_audit",
+        command="validate_node_contract",
+        target_types=("node", "graph"),
+        category="task_graph",
+        source="graphyagent.node_audit.main.validate_contract",
+        description="Validate a node's declared input/output contract and gate status before execution.",
+        payload={
+            "node_id": "optional node id override",
+            "graph": "optional graph snapshot",
+            "update_graph": "optional bool, default true",
+        },
+    ),
+    ModuleCommandSpec(
+        module="task_decompose",
+        command="decompose_node",
+        target_types=("node",),
+        category="task_graph",
+        source="graphyagent.task_decompose.main.run",
+        description="Split a node into a smaller subgraph and preserve node files where possible.",
+        payload={"child_names": "optional list of child node names"},
+        legacy_command="decompose_node",
+    ),
+    ModuleCommandSpec(
+        module="task_decompose",
+        command="decompose_task_to_graph",
+        target_types=("project", "graph"),
+        category="task_graph",
+        source="graphyagent.task_decompose.main.decompose_task_to_graph",
+        description="Turn a natural-language task description into a workflow graph.",
+        payload={
+            "prompt": "required task/workflow description",
+            "name": "optional graph display name",
+            "graph_id": "optional existing graph id when updating",
+            "create_new_graph": "optional bool, default true",
+        },
+    ),
+    ModuleCommandSpec(
+        module="task_decompose",
+        command="build_decompose_prompt",
+        target_types=("project", "graph", "node"),
+        category="recovery",
+        source="graphyagent.task_decompose.recovery.build_decompose_prompt",
+        description="Build a recovery decomposition prompt that preserves GraphyAgent DAG node semantics and parallelizable subtasks.",
+        payload={
+            "task": "required unless prompt or node context is available",
+            "error": "optional failure text",
+            "failed_node_id": "optional failed node id",
+            "inputs": "optional input summary object",
+            "output_spec": "optional output requirements object",
+        },
+    ),
+    ModuleCommandSpec(
+        module="task_decompose",
+        command="decompose_task",
+        target_types=("project", "graph", "node"),
+        category="recovery",
+        source="graphyagent.task_decompose.recovery.decompose_task",
+        description="Decompose a failed or oversized task through the existing task_decompose graph builder and persist it as a graph.",
+        payload={
+            "task": "required unless prompt or node context is available",
+            "error": "optional failure text",
+            "failed_node_id": "optional failed node id",
+            "graph_id": "optional graph to rebuild; defaults to current graph",
+            "create_new_graph": "optional bool; default false when graph_id exists",
+        },
+    ),
+)
+
+
+def list_modules() -> list[dict[str, Any]]:
+    return [item.to_dict() for item in MODULE_CATALOG]
+
+
+def agent_module_names() -> list[str]:
+    return [item.name for item in MODULE_CATALOG]
+
+
+def list_module_commands(
+    module: str | None = None,
+    target_type: str | None = None,
+    *,
+    queue_enabled: bool | None = None,
+) -> list[dict[str, Any]]:
+    specs = MODULE_COMMAND_CATALOG
+    if module:
+        specs = tuple(item for item in specs if item.module == module)
+    if target_type:
+        specs = tuple(item for item in specs if target_type in item.target_types)
+    if queue_enabled is not None:
+        specs = tuple(item for item in specs if item.queue_enabled is queue_enabled)
+    return [item.to_dict() for item in specs]
+
+
+def module_command_names(module: str | None = None) -> list[str]:
+    return [item.command for item in MODULE_COMMAND_CATALOG if not module or item.module == module]
+
+
+def module_target_types() -> list[str]:
+    return sorted({target for item in MODULE_COMMAND_CATALOG for target in item.target_types})
+
+
+def resolve_module_command(module: str | None, command: str) -> ModuleCommandSpec:
+    module_name = str(module or "").strip()
+    command_name = str(command or "").strip()
+    if not module_name and "." in command_name:
+        module_name, command_name = command_name.split(".", 1)
+    for item in MODULE_COMMAND_CATALOG:
+        if item.module == module_name and item.command == command_name:
+            return item
+    if not module_name:
+        raise ValueError(f"module is required for module command: {command}")
+    raise ValueError(f"unknown module command: {module_name}.{command_name}")
+
+
+def legacy_to_module_command(command: str) -> ModuleCommandSpec | None:
+    command_name = str(command or "").strip()
+    for item in MODULE_COMMAND_CATALOG:
+        if item.legacy_command == command_name:
+            return item
+    return None
+
+
+def format_module_commands_markdown(
+    module: str | None = None,
+    target_type: str | None = None,
+) -> str:
+    title = f"# GraphyAgent Module Commands: {module}" if module else "# GraphyAgent Module Commands"
+    lines = [title, ""]
+    current_module = None
+    for item in MODULE_COMMAND_CATALOG:
+        if module and item.module != module:
+            continue
+        if target_type and target_type not in item.target_types:
+            continue
+        if item.module != current_module:
+            current_module = item.module
+            module_spec = next(spec for spec in MODULE_CATALOG if spec.name == current_module)
+            lines.extend([f"## {current_module}", module_spec.description, ""])
+        targets = ", ".join(item.target_types)
+        payload = json.dumps(item.payload or {}, ensure_ascii=False)
+        queue = "queue" if item.queue_enabled else "direct"
+        legacy = f", legacy `{item.legacy_command}`" if item.legacy_command else ""
+        lines.append(
+            f"- `{item.command}` [{targets}] ({item.category}, {queue}{legacy}) - {item.description}"
+        )
+        lines.append(f"  payload: `{payload}`")
+    return "\n".join(lines)
+
+
+__all__ = [
+    "AgentModuleSpec",
+    "ModuleCommandSpec",
+    "MODULE_CATALOG",
+    "MODULE_COMMAND_CATALOG",
+    "agent_module_names",
+    "format_module_commands_markdown",
+    "legacy_to_module_command",
+    "list_module_commands",
+    "list_modules",
+    "module_command_names",
+    "module_target_types",
+    "resolve_module_command",
+]
